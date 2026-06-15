@@ -19,7 +19,8 @@ toffee/
 │   └── toffee-client       # async client that agents add to their Cargo.toml
 └── bin/
     ├── toffeed             # daemon binary
-    └── toffee              # CLI for humans
+    ├── toffee              # CLI for humans
+    └── toffee-mcp          # MCP server that wraps toffeed over stdio
 ```
 
 The split is the design — each layer can only depend on layers below it. A few load-bearing rules:
@@ -28,7 +29,7 @@ The split is the design — each layer can only depend on layers below it. A few
 - **`toffee-store` is the only crate that imports `rusqlite`.** All SQL lives here. Migrations are forward-only, versioned by integer (see [Schema migrations](#schema-migrations)).
 - **`toffee-vector` is the only crate that imports `hnsw_rs`.** All ANN and embedding code lives here. Use the `Embedder` trait to add backends; see [Embedder backends](#embedder-backends).
 - **`toffee-runtime` orchestrates.** It depends on core + store + vector. The `Runtime` struct is the facade the daemon and tests both use.
-- **`bin/` crates are wiring.** No business logic. The daemon's `Handler` impl just unwraps RPC requests and calls `Runtime` methods inside `spawn_blocking`.
+- **`bin/` crates are wiring.** No business logic. The daemon's `Handler` impl just unwraps RPC requests and calls `Runtime` methods inside `spawn_blocking`. `toffee-mcp` is a thin translator from MCP tool calls to `toffee-client` calls — it owns no storage and forwards everything to a running `toffeed`.
 
 ---
 
@@ -68,6 +69,7 @@ There are 100+ tests across the workspace. The big buckets:
 | Daemon round-trip | `bin/toffeed/tests/integrator_flow.rs` | A real `toffeed` spawned and driven via `toffee-client`. |
 | Notifications over the wire | `bin/toffeed/tests/observability_flow.rs` | `toffee.memory.promoted` delivered through the real socket. |
 | Crash safety | `bin/toffeed/tests/crash_safety.rs` | SIGKILL mid-write, mid-worker, pid-lock release. |
+| MCP round-trip | `bin/toffee-mcp/tests/mcp_flow.rs` | Spawn `toffeed`, drive `toffee-mcp` over stdio via an `rmcp` client, exercise tools/list + tools/call. |
 
 Run a single suite with `cargo test -p <crate> --test <name>`.
 
@@ -125,6 +127,29 @@ The method lands in five places. There's no codegen — it's hand-rolled JSON-RP
 7. **CLI subcommand** in `bin/toffee/src/commands/` if the surface is user-facing.
 
 For methods that mutate state, also consider whether the worker should emit a [`Notification`](#notifications) afterward.
+
+### Adding a tool to `toffee-mcp`
+
+The MCP server lives in `bin/toffee-mcp/` and is built with `rmcp`. Each tool is a method on `ToffeeMcp` annotated with `#[tool]`; the `#[tool_router]` macro on the `impl` block wires them into the JSON-RPC dispatch table, and the `#[tool_handler]` macro on the `ServerHandler` impl plumbs the router into the rmcp service.
+
+To add a tool that forwards a new `toffee-client` method:
+
+1. **Input type** in `bin/toffee-mcp/src/tools.rs`. Derive `Deserialize` and `rmcp::schemars::JsonSchema`. Use `String` for typed IDs (`MemoryId`, `EventId`, …) — those wrappers don't implement `JsonSchema` and the macro needs a schema.
+2. **Tool method** in `bin/toffee-mcp/src/server.rs` inside the `#[tool_router] impl ToffeeMcp` block:
+   ```rust
+   #[tool(description = "...")]
+   async fn my_tool(&self, Parameters(args): Parameters<MyArgs>) -> Result<CallToolResult, McpError> {
+       let client = self.client().await?;
+       let out = call_with_retry(self, |c| { let args = args.clone(); async move { c.my_method(args).await } }, client).await?;
+       Ok(CallToolResult::success(vec![Content::text(/* render */ )]))
+   }
+   ```
+   Wrap the client call in `call_with_retry` so a stale connection auto-reconnects once. If the tool needs a `scope`, use `self.resolve_scope(args.scope)?` to fall back to `--default-scope`.
+3. **Test** by adding an arm to `bin/toffee-mcp/tests/mcp_flow.rs` — `client.call_tool(CallToolRequestParams::new("my_tool").with_arguments(object!({...})))`. The fixture spawns a real `toffeed` with `--embedder hash` so the test stays offline.
+
+The MCP server intentionally exposes only the **agent-facing** subset of the RPC surface (read / search / append / add / forget / list / get / record_feedback). Human-in-the-loop operations — `resolve_conflict`, `worker_status`, `inspect_provenance` — are deliberately CLI-only; an autonomous agent should not be silently picking conflict winners.
+
+**Output stream discipline.** Stdout is the MCP wire — anything else written there corrupts the protocol. The `tracing` subscriber in `main.rs` is pinned to stderr; do not change that, and avoid `println!` / `dbg!` in tool implementations.
 
 ### Adding a memory kind
 

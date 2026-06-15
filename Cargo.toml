@@ -10,6 +10,7 @@ members = [
     "crates/toffee-tap",
     "bin/toffeed",
     "bin/toffee",
+    "bin/toffee-mcp",
 ]
 
 [workspace.package]

@@ -132,6 +132,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 `append_event` returns in microseconds. Extraction (turning user messages into typed memories) happens in the daemon's background worker.
 
+## Use it from an MCP-aware agent
+
+`toffee-mcp` is a stdio MCP server that wraps `toffeed`, so any MCP-aware agent (Claude Desktop, Cursor, Zed, …) gets shared per-machine memory by editing one config file. It owns no storage — every tool call forwards to the local daemon.
+
+For Claude Desktop, add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "toffee": {
+      "command": "/path/to/toffee-mcp",
+      "args": ["--default-scope", "project:my-project", "user:me"]
+    }
+  }
+}
+```
+
+The tools surface (agent-facing only — humans use the CLI for conflict resolution):
+
+| Tool | Use |
+|---|---|
+| `read_context` | Assemble a memory-augmented markdown block to prepend to the prompt. The primary read entry point. |
+| `search_memory` | Vector-ranked search; raw hits without lens / budget. |
+| `append_event` | Record a user message, agent reply, or tool call. Extraction is async. |
+| `add_memory` | Explicitly record a typed memory (claim / decision / preference / episode). |
+| `record_feedback` | helpful / wrong / stale / correct → adjusts confidence. |
+| `list_memories` | Browse with simple filters. |
+| `get_memory` | Fetch one by id. |
+| `forget_memory` | Soft-delete. Irreversible. |
+
+`toffee-mcp` auto-spawns `toffeed` if it isn't already running. Pass `--socket` to override the daemon socket path or `TOFFEE_DEFAULT_SCOPE=project:foo,user:me` instead of `--default-scope`.
+
 ## How toffee thinks about memory
 
 **Events** are the raw record: a user message, an agent reply, a tool call. Events are append-only and live forever.
