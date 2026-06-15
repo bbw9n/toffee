@@ -69,6 +69,12 @@ pub fn db_path() -> PathBuf {
     data_dir().join("toffee.db")
 }
 
+/// Where the candle-backed embedder caches model weights.
+/// Matches RFC §6.4: `$XDG_DATA_HOME/toffee/models/`.
+pub fn models_dir() -> PathBuf {
+    data_dir().join("models")
+}
+
 pub fn log_dir() -> PathBuf {
     state_dir().join("logs")
 }

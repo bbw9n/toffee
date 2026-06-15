@@ -29,7 +29,17 @@ use toffee_rpc::server::{serve, Handler, RpcError};
 use toffee_runtime::read_path::ReadContextRequest as RuntimeReadContext;
 use toffee_runtime::{ResolutionAction, Runtime, SearchParams};
 use toffee_store::{EntityListFilter, MemoryListFilter, Store};
+use toffee_vector::{BgeEmbedder, Embedder, HashEmbedder, VectorIndex};
 use tracing_subscriber::EnvFilter;
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum EmbedderChoice {
+    /// BGE-small-en-v1.5 via candle. Lazy-downloads weights (~130MB) on
+    /// first start into `$XDG_DATA_HOME/toffee/models/`.
+    Bge,
+    /// Feature-hashed bag-of-tokens. Offline, deterministic, lexical only.
+    Hash,
+}
 
 #[derive(Parser, Debug)]
 #[command(name = "toffeed", version, about = "Toffee memory daemon")]
@@ -50,6 +60,17 @@ struct Args {
     /// Override the database file path.
     #[arg(long, env = "TOFFEE_DB")]
     db: Option<PathBuf>,
+
+    /// Embedding backend. `bge` (default) loads a real sentence-transformer
+    /// and downloads weights on first use. `hash` keeps everything offline
+    /// but is lexical-only.
+    #[arg(long, value_enum, env = "TOFFEE_EMBEDDER", default_value_t = EmbedderChoice::Bge)]
+    embedder: EmbedderChoice,
+
+    /// Override the model cache directory. Defaults to
+    /// `$XDG_DATA_HOME/toffee/models/`.
+    #[arg(long, env = "TOFFEE_MODELS_DIR")]
+    models_dir: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -89,9 +110,20 @@ async fn run(args: Args) -> Result<()> {
     );
     tracing::info!(?db_path, "store ready");
 
-    let runtime = Runtime::new(store.clone());
+    let embedder: Arc<dyn Embedder> = build_embedder(args.embedder, args.models_dir)
+        .context("build embedder")?;
+    tracing::info!(
+        model = embedder.model(),
+        dim = embedder.dim(),
+        "embedder ready"
+    );
+    let vector = Arc::new(VectorIndex::new(embedder.dim()));
+    let runtime = Runtime::with_components(store.clone(), embedder, vector);
 
     // Rebuild the in-memory HNSW index from the persisted embeddings table.
+    // Embeddings stored under a different model id are skipped silently;
+    // run `toffee daemon rebuild-indexes` after switching embedders to
+    // re-embed under the new model.
     let n_indexed = runtime
         .load_index_from_store()
         .context("rehydrate vector index from store")?;
@@ -613,6 +645,30 @@ fn acquire_pid_lock(pid_path: &PathBuf) -> Result<PidLock> {
         path: pid_path.clone(),
         _file: file,
     })
+}
+
+fn build_embedder(
+    choice: EmbedderChoice,
+    models_dir_override: Option<PathBuf>,
+) -> Result<Arc<dyn Embedder>> {
+    match choice {
+        EmbedderChoice::Bge => {
+            let cache = models_dir_override.unwrap_or_else(paths::models_dir);
+            tracing::info!(
+                cache = ?cache,
+                "loading BGE-small-en-v1.5 (downloads ~130MB on first start)"
+            );
+            let bge = BgeEmbedder::new(&cache).with_context(|| {
+                format!(
+                    "load BGE-small embedder from {:?}. \
+                     If you have no network access, restart with --embedder hash.",
+                    cache
+                )
+            })?;
+            Ok(Arc::new(bge))
+        }
+        EmbedderChoice::Hash => Ok(Arc::new(HashEmbedder::default())),
+    }
 }
 
 fn set_socket_mode(path: &PathBuf, mode: u32) -> Result<()> {

@@ -29,6 +29,18 @@ toffee daemon start
 
 That's it — `toffeed` runs in the background, the socket lives at `$XDG_RUNTIME_DIR/toffee/toffeed.sock` (or `/tmp/toffee-<user>/...` if `XDG_RUNTIME_DIR` isn't set), and the database lives at `$XDG_DATA_HOME/toffee/toffee.db`.
 
+On first start the daemon lazy-downloads the BGE-small-en-v1.5 sentence-transformer (~130 MB) into `$XDG_DATA_HOME/toffee/models/`. Subsequent starts load from disk. If you have no network access — or want a fully offline / deterministic setup — pass `--embedder hash`:
+
+```bash
+toffee daemon start -- --embedder hash
+```
+
+On Apple Silicon, build with `--features metal` for the Metal compute backend:
+
+```bash
+cargo build --release --features metal
+```
+
 ## Try it from the CLI
 
 ```bash
@@ -170,7 +182,7 @@ Everything supports `--format json` for scripting.
 
 v0.1 — the integrator surface is stable. Hot-path methods (`read_context`, `append_event`, `record_feedback`, `search_memory`, `hello`) won't change names; new optional fields may appear additively.
 
-The embedder is a deterministic feature-hashing baseline. A real semantic embedder (BGE-small via candle, with optional Metal acceleration) is the next planned upgrade and is gated behind the `candle` / `metal` cargo features on `toffee-vector`.
+Two embedder backends ship: **BGE-small-en-v1.5** via candle (384-dim, the daemon default, lazy-downloaded on first start, optional Metal acceleration on macOS with `--features metal`) and a deterministic feature-hashing fallback (256-dim, fully offline, used in the test suite and selectable with `--embedder hash`). Embeddings are tagged with the active model name; after switching backends, run `toffee daemon rebuild-indexes` to re-embed memories under the new model.
 
 Single-machine only in v1. Cross-device sync, procedure memory, compaction, and richer lens variants are v2 work.
 

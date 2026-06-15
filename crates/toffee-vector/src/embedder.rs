@@ -1,20 +1,13 @@
-//! Embedders.
+//! Embedder trait + `HashEmbedder` fallback.
 //!
 //! [`HashEmbedder`] is a deterministic feature-hashing baseline. It tokenises
 //! on word boundaries, lowercases, and projects each token to a fixed-dim
 //! sparse vector via a fast non-cryptographic hash; vectors are L2-normalised
 //! so dot product == cosine similarity.
 //!
-//! Real semantic embedding (BGE-small / MiniLM via candle) is gated behind
-//! the `candle` cargo feature on this crate. When enabled, a future
-//! `CandleBgeEmbedder` will implement [`Embedder`] using locally-cached
-//! model weights; `metal` further opts into the Metal compute backend on
-//! macOS. The model packaging open question (RFC §11) is the gating
-//! concern; the trait below makes the swap a one-line change in `toffeed`.
-//!
-//! Today the crate has no behavioural difference whether `candle` is on or
-//! off — the feature is reserved so downstreams that want to forward-bind
-//! to the future backend can do so now.
+//! The semantic backend ([`crate::BgeEmbedder`]) is the daemon default;
+//! `HashEmbedder` is kept for tests and as an offline fallback when BGE
+//! weights are unavailable.
 
 use crate::{Result, DEFAULT_DIM, DEFAULT_MODEL};
 

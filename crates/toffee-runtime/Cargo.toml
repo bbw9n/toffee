@@ -4,6 +4,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = []
+# Forward to toffee-vector for Metal-accelerated BGE on macOS.
+metal = ["toffee-vector/metal"]
+
 [dependencies]
 toffee-core = { workspace = true }
 toffee-store = { workspace = true }

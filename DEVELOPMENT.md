@@ -41,6 +41,10 @@ cargo build --workspace
 # Build release binaries.
 cargo build --workspace --release
 
+# Build with Metal acceleration for the BGE embedder (macOS / Apple Silicon).
+# The feature forwards through bin/toffeed → toffee-runtime → toffee-vector.
+cargo build --workspace --release --features metal
+
 # Run all tests.
 cargo test --workspace
 
@@ -66,6 +70,8 @@ There are 100+ tests across the workspace. The big buckets:
 | Crash safety | `bin/toffeed/tests/crash_safety.rs` | SIGKILL mid-write, mid-worker, pid-lock release. |
 
 Run a single suite with `cargo test -p <crate> --test <name>`.
+
+The end-to-end daemon tests under `bin/toffeed/tests/` spawn `toffeed` with `--embedder hash` so CI never pulls BGE weights over the network. If you add a new daemon-spawning test, copy that flag — letting it default to `bge` will hit hf-hub on every run.
 
 ---
 
@@ -143,7 +149,7 @@ Clients pick it up via `Client::subscribe_notifications()` → `broadcast::Recei
 
 ### Embedder backends
 
-The current default is `HashEmbedder` (deterministic feature hashing). The `Embedder` trait (`crates/toffee-vector/src/embedder.rs`) is the seam for a real semantic backend.
+Two backends ship today. Both implement the `Embedder` trait in `crates/toffee-vector/src/embedder.rs` and produce L2-normalised vectors so the HNSW index can treat cosine similarity as dot product regardless of which one is active.
 
 ```rust
 pub trait Embedder: Send + Sync + 'static {
@@ -154,23 +160,28 @@ pub trait Embedder: Send + Sync + 'static {
 }
 ```
 
-To swap in a candle-backed BGE:
+| Backend | `model()` tag | `dim()` | Notes |
+|---|---|---|---|
+| `BgeEmbedder` (`crates/toffee-vector/src/bge.rs`) | `bge-small-en-v1.5` | 384 | candle + tokenizers, CLS-pooled. Lazy-downloads weights via `hf-hub` on first construction; `metal` cargo feature opts into the Metal backend on macOS. |
+| `HashEmbedder` (`crates/toffee-vector/src/embedder.rs`) | `hash-feature-v1` | 256 | Feature-hashed bag-of-tokens. Offline, deterministic, ~zero runtime cost. |
 
-1. Add the backend impl behind a cargo feature on `toffee-vector` (`candle` is reserved for this; `metal = ["candle"]` further opts into Metal).
-2. Wire it into the daemon (`bin/toffeed/src/main.rs`):
+The daemon picks one at startup from `--embedder bge|hash` (env: `TOFFEE_EMBEDDER`, default `bge`):
 
 ```rust
-#[cfg(feature = "candle")]
-let embedder: Arc<dyn Embedder> = Arc::new(CandleBgeEmbedder::load(...)?);
-#[cfg(not(feature = "candle"))]
-let embedder: Arc<dyn Embedder> = Arc::new(HashEmbedder::default());
+// bin/toffeed/src/main.rs
+let embedder: Arc<dyn Embedder> = match args.embedder {
+    EmbedderChoice::Bge => Arc::new(BgeEmbedder::new(&cache_dir)?),
+    EmbedderChoice::Hash => Arc::new(HashEmbedder::default()),
+};
 let vector = Arc::new(VectorIndex::new(embedder.dim()));
 let runtime = Runtime::with_components(store, embedder, vector);
 ```
 
-Existing embeddings under the old model are tagged with `model = "hash-feature-v1"` in SQLite. The runtime's `load_index_from_store()` filters by the current model name, so old vectors are ignored; `toffee daemon rebuild-indexes` re-embeds the active memory set under the new model.
+Embeddings are tagged with the active `model()` string in SQLite. The runtime's `load_index_from_store()` filters by the current model name on startup, so vectors written under a different backend are skipped (not deleted). After switching backends, run `toffee daemon rebuild-indexes` to re-embed the active memory set under the new model.
 
-The model packaging decision (ship weights vs. lazy-download via `toffee daemon prefetch-models`) is RFC §11 open question #2. The CLI command exists as a stub today.
+Adding a third backend: implement `Embedder`, extend `EmbedderChoice` in `bin/toffeed/src/main.rs`, and pick a unique `model()` string so the cross-model filtering stays correct.
+
+**Where weights live.** `BgeEmbedder::new(cache_dir)` uses `cache_dir` as the hf-hub cache root. The daemon defaults this to `$XDG_DATA_HOME/toffee/models/` (via `paths::models_dir()`); override with `--models-dir` or `TOFFEE_MODELS_DIR`. The `toffee daemon prefetch-models` CLI remains a stub — first-start lazy download is the supported path today.
 
 ---
 

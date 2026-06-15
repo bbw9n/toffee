@@ -6,18 +6,25 @@ license.workspace = true
 
 [features]
 default = []
-# Placeholder for the future candle-backed BGE-small embedder. Enabling it
-# today does nothing — the HashEmbedder is still the default. The feature
-# advertises the toggle so callers can opt in when the real backend lands.
-candle = []
-# Enable Metal acceleration in the candle backend. No effect without the
-# `candle` feature.
-metal = ["candle"]
+# Opt into the Metal compute backend on macOS for the candle-backed BGE
+# embedder. CPU works without this; Metal is faster on Apple Silicon.
+metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
 
 [dependencies]
 toffee-core = { workspace = true }
 hnsw_rs = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
+
+# BGE backend: candle + tokenizers + hf-hub.
+candle-core = "0.8"
+candle-nn = "0.8"
+candle-transformers = "0.8"
+tokenizers = { version = "0.21", default-features = false, features = ["fancy-regex"] }
+hf-hub = "0.3"
+
+[dev-dependencies]
+tempfile = "3"

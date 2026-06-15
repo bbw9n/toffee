@@ -8,10 +8,16 @@ license.workspace = true
 name = "toffeed"
 path = "src/main.rs"
 
+[features]
+default = []
+# Forward to toffee-vector for Metal-accelerated BGE on macOS.
+metal = ["toffee-runtime/metal"]
+
 [dependencies]
 toffee-core = { workspace = true }
 toffee-store = { workspace = true }
 toffee-runtime = { workspace = true }
+toffee-vector = { workspace = true }
 toffee-rpc = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }

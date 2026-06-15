@@ -32,6 +32,8 @@ impl Daemon {
             .arg(&socket)
             .arg("--db")
             .arg(data.join("toffee.db"))
+            .arg("--embedder")
+            .arg("hash")
             .env("XDG_DATA_HOME", tmp.path().join("xdg-data"))
             .env("XDG_RUNTIME_DIR", tmp.path().join("xdg-run"))
             .env("XDG_STATE_HOME", tmp.path().join("xdg-state"))

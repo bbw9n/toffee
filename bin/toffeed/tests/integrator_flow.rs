@@ -36,6 +36,10 @@ impl Daemon {
             .arg(&socket)
             .arg("--db")
             .arg(data.join("toffee.db"))
+            // Tests use the offline hash embedder so they don't pull BGE
+            // weights over the network on every run.
+            .arg("--embedder")
+            .arg("hash")
             .env("XDG_DATA_HOME", tmp.path().join("xdg-data"))
             .env("XDG_RUNTIME_DIR", tmp.path().join("xdg-run"))
             .env("XDG_STATE_HOME", tmp.path().join("xdg-state"))
