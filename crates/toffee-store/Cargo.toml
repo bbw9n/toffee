@@ -1,0 +1,16 @@
+[package]
+name = "toffee-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+toffee-core = { workspace = true }
+rusqlite = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

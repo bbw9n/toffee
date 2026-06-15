@@ -1,0 +1,54 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/toffee-core",
+    "crates/toffee-store",
+    "crates/toffee-rpc",
+    "crates/toffee-client",
+    "bin/toffeed",
+    "bin/toffee",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.75"
+
+[workspace.dependencies]
+# Async
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+
+# Storage
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# IDs
+ulid = "1"
+
+# Misc
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"
+thiserror = "1"
+libc = "0.2"
+
+# Internal
+toffee-core = { path = "crates/toffee-core" }
+toffee-store = { path = "crates/toffee-store" }
+toffee-rpc = { path = "crates/toffee-rpc" }
+toffee-client = { path = "crates/toffee-client" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

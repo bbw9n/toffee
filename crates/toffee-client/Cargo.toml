@@ -1,0 +1,15 @@
+[package]
+name = "toffee-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Async client library for toffee, the local-first memory layer for AI agents."
+
+[dependencies]
+toffee-core = { workspace = true }
+toffee-rpc = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
