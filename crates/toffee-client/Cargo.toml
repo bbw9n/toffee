@@ -3,12 +3,18 @@ name = "toffee-client"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Async client library for toffee, the local-first memory layer for AI agents."
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Async client for toffee, the local-first memory layer for AI agents."
+readme = "README.md"
 
 [dependencies]
 toffee-core = { workspace = true }
 toffee-rpc = { workspace = true }
 tokio = { workspace = true }
+parking_lot = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

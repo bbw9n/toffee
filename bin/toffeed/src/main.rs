@@ -10,13 +10,25 @@ use async_trait::async_trait;
 use clap::Parser;
 use tokio::net::UnixListener;
 use tokio::sync::broadcast;
-use toffee_core::{paths, EventInput};
+use toffee_core::{
+    paths, EventInput, ExtractionProvenance, FeedbackKind, Lens, MemoryCandidate, MemoryId,
+    MemoryKind, Scope,
+};
 use toffee_rpc::methods::{
-    method_names, AppendEventRequest, AppendEventResponse, HelloRequest, HelloResponse,
-    ServerInfo,
+    method_names, AddMemoryRequest, AddMemoryResponse, AppendEventRequest, AppendEventResponse,
+    ForgetMemoryRequest, GetConflictRequest, GetConflictResponse, GetEntityPageRequest,
+    GetEntityPageResponse, GetMemoryRequest, GetMemoryResponse, HelloRequest, HelloResponse,
+    InspectProvenanceRequest, InspectProvenanceResponse, ListConflictsRequest,
+    ListConflictsResponse, ListEntitiesRequest, ListEntitiesResponse, ListMemoriesRequest,
+    ListMemoriesResponse, ReadContextRequest, ReadContextResponse, RebuildIndexesResponse,
+    RecordFeedbackRequest, RecordFeedbackResponse, ResolveConflictAction, ResolveConflictRequest,
+    ResolveConflictResponse, SearchMemoryHit, SearchMemoryRequest, SearchMemoryResponse, ServerInfo,
+    WhyMemoryRequest, WhyMemoryResponse, WorkerStatusRequest, WorkerStatusResponse,
 };
 use toffee_rpc::server::{serve, Handler, RpcError};
-use toffee_store::Store;
+use toffee_runtime::read_path::ReadContextRequest as RuntimeReadContext;
+use toffee_runtime::{ResolutionAction, Runtime, SearchParams};
+use toffee_store::{EntityListFilter, MemoryListFilter, Store};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
@@ -77,12 +89,32 @@ async fn run(args: Args) -> Result<()> {
     );
     tracing::info!(?db_path, "store ready");
 
+    let runtime = Runtime::new(store.clone());
+
+    // Rebuild the in-memory HNSW index from the persisted embeddings table.
+    let n_indexed = runtime
+        .load_index_from_store()
+        .context("rehydrate vector index from store")?;
+    tracing::info!(n_indexed, "vector index rehydrated");
+
     let (shutdown_tx, _) = broadcast::channel::<()>(8);
     let handler = Arc::new(DaemonHandler {
+        runtime: runtime.clone(),
         store: store.clone(),
         started_at: Instant::now(),
         shutdown: shutdown_tx.clone(),
     });
+
+    // Spawn the worker task.
+    let worker_handle = {
+        let runtime = runtime.clone();
+        let shutdown_rx = shutdown_tx.subscribe();
+        tokio::spawn(async move {
+            if let Err(e) = runtime.run_worker(shutdown_rx).await {
+                tracing::error!(error = ?e, "worker task ended with error");
+            }
+        })
+    };
 
     // Spawn the server task.
     let server_handle = {
@@ -98,8 +130,9 @@ async fn run(args: Args) -> Result<()> {
     wait_for_shutdown_signal(shutdown_tx.clone()).await;
     tracing::info!("shutting down");
 
-    // Drop the server task and clean up.
+    // Drop the worker + server tasks and clean up.
     let _ = server_handle.await;
+    let _ = worker_handle.await;
     std::fs::remove_file(&socket_path).ok();
     // pid file is unlinked when the lock guard drops.
     Ok(())
@@ -133,6 +166,7 @@ async fn wait_for_shutdown_signal(shutdown_tx: broadcast::Sender<()>) {
 }
 
 struct DaemonHandler {
+    runtime: Runtime,
     store: Arc<Store>,
     started_at: Instant,
     shutdown: broadcast::Sender<()>,
@@ -161,12 +195,324 @@ impl Handler for DaemonHandler {
         req: AppendEventRequest,
     ) -> Result<AppendEventResponse, RpcError> {
         let input: EventInput = req;
-        let store = self.store.clone();
-        let event = tokio::task::spawn_blocking(move || store.append_event(input))
+        let runtime = self.runtime.clone();
+        let event = tokio::task::spawn_blocking(move || runtime.append_event(input))
             .await
             .map_err(|e| RpcError::Internal(e.to_string()))?
             .map_err(|e| RpcError::Internal(e.to_string()))?;
         Ok(AppendEventResponse { event_id: event.id })
+    }
+
+    async fn record_feedback(
+        &self,
+        req: RecordFeedbackRequest,
+    ) -> Result<RecordFeedbackResponse, RpcError> {
+        let RecordFeedbackRequest { memory_id, kind } = req;
+        let runtime = self.runtime.clone();
+        let mid = memory_id.clone();
+        let kind_owned: FeedbackKind = kind;
+        let new_confidence =
+            tokio::task::spawn_blocking(move || runtime.record_feedback(&mid, kind_owned))
+                .await
+                .map_err(|e| RpcError::Internal(e.to_string()))?
+                .map_err(map_runtime_err)?;
+        Ok(RecordFeedbackResponse {
+            memory_id,
+            new_confidence,
+        })
+    }
+
+    async fn add_memory(
+        &self,
+        req: AddMemoryRequest,
+    ) -> Result<AddMemoryResponse, RpcError> {
+        let AddMemoryRequest {
+            kind,
+            scope,
+            text,
+            subject,
+            predicate,
+            object,
+            confidence,
+        } = req;
+
+        validate_add_memory(kind, &subject, &predicate, &object)?;
+
+        let candidate = MemoryCandidate {
+            kind,
+            scope,
+            text,
+            subject,
+            predicate,
+            object,
+            entities: vec![],
+            confidence,
+            source_event_ids: vec![],
+            provenance: ExtractionProvenance::Manual,
+        };
+        let conf = toffee_core::scalars::compute_confidence(&candidate);
+        let memory = candidate_to_memory(candidate, conf);
+
+        let runtime = self.runtime.clone();
+        let memory = tokio::task::spawn_blocking(move || {
+            runtime.insert_memory_and_link_entities(memory)
+        })
+        .await
+        .map_err(|e| RpcError::Internal(e.to_string()))?
+        .map_err(map_runtime_err)?;
+
+        Ok(AddMemoryResponse { memory })
+    }
+
+    async fn forget_memory(&self, req: ForgetMemoryRequest) -> Result<(), RpcError> {
+        let runtime = self.runtime.clone();
+        let id = req.memory_id;
+        tokio::task::spawn_blocking(move || runtime.forget_memory(&id))
+            .await
+            .map_err(|e| RpcError::Internal(e.to_string()))?
+            .map_err(map_runtime_err)?;
+        Ok(())
+    }
+
+    async fn list_memories(
+        &self,
+        req: ListMemoriesRequest,
+    ) -> Result<ListMemoriesResponse, RpcError> {
+        let filter = MemoryListFilter {
+            scope_any_of: req.scope_any_of,
+            kind: req.kind,
+            include_deleted: false,
+            include_superseded: false,
+            limit: req.limit.or(Some(200)),
+        };
+        let q = req.query.map(|s| s.to_lowercase());
+        let store = self.store.clone();
+        let memories = tokio::task::spawn_blocking(move || store.list_memories(&filter))
+            .await
+            .map_err(|e| RpcError::Internal(e.to_string()))?
+            .map_err(|e| RpcError::Internal(e.to_string()))?;
+        let filtered = if let Some(q) = q {
+            memories
+                .into_iter()
+                .filter(|m| m.text.to_lowercase().contains(&q))
+                .collect()
+        } else {
+            memories
+        };
+        Ok(ListMemoriesResponse { memories: filtered })
+    }
+
+    async fn get_memory(&self, req: GetMemoryRequest) -> Result<GetMemoryResponse, RpcError> {
+        let store = self.store.clone();
+        let id = req.memory_id.clone();
+        let memory = tokio::task::spawn_blocking(move || store.get_memory(&id))
+            .await
+            .map_err(|e| RpcError::Internal(e.to_string()))?
+            .map_err(|e| RpcError::Internal(e.to_string()))?;
+        let memory = memory.ok_or_else(|| RpcError::NotFound(format!("memory {}", req.memory_id)))?;
+        Ok(GetMemoryResponse { memory })
+    }
+
+    async fn list_entities(
+        &self,
+        req: ListEntitiesRequest,
+    ) -> Result<ListEntitiesResponse, RpcError> {
+        let filter = EntityListFilter {
+            entity_type: req.entity_type,
+            name_prefix: req.name_prefix,
+            limit: req.limit.or(Some(200)),
+        };
+        let store = self.store.clone();
+        let entities = tokio::task::spawn_blocking(move || store.list_entities(&filter))
+            .await
+            .map_err(|e| RpcError::Internal(e.to_string()))?
+            .map_err(|e| RpcError::Internal(e.to_string()))?;
+        Ok(ListEntitiesResponse { entities })
+    }
+
+    async fn get_entity_page(
+        &self,
+        req: GetEntityPageRequest,
+    ) -> Result<GetEntityPageResponse, RpcError> {
+        let runtime = self.runtime.clone();
+        let ident = req.identifier;
+        let scope = req.scope;
+        let page = tokio::task::spawn_blocking(move || runtime.get_entity_page(&ident, scope))
+            .await
+            .map_err(|e| RpcError::Internal(e.to_string()))?
+            .map_err(map_runtime_err)?;
+        Ok(GetEntityPageResponse { page })
+    }
+
+    async fn search_memory(
+        &self,
+        req: SearchMemoryRequest,
+    ) -> Result<SearchMemoryResponse, RpcError> {
+        let runtime = self.runtime.clone();
+        let params = SearchParams {
+            query: req.query,
+            scope_any_of: req.scope_any_of,
+            kind: req.kind,
+            limit: req.limit.unwrap_or(20),
+            min_similarity: req.min_similarity.unwrap_or(0.0),
+        };
+        let hits = tokio::task::spawn_blocking(move || runtime.search_memory(params))
+            .await
+            .map_err(|e| RpcError::Internal(e.to_string()))?
+            .map_err(map_runtime_err)?;
+        Ok(SearchMemoryResponse {
+            hits: hits
+                .into_iter()
+                .map(|h| SearchMemoryHit {
+                    memory: h.memory,
+                    similarity: h.similarity,
+                })
+                .collect(),
+        })
+    }
+
+    async fn read_context(
+        &self,
+        req: ReadContextRequest,
+    ) -> Result<ReadContextResponse, RpcError> {
+        let lens = req
+            .custom_lens
+            .clone()
+            .unwrap_or_else(|| match req.lens.as_str() {
+                "" | "default" => Lens::default_lens(),
+                _ => {
+                    tracing::warn!(lens = %req.lens, "unknown lens — falling back to default");
+                    Lens::default_lens()
+                }
+            });
+        let token_budget = req.token_budget.unwrap_or(3000);
+        let runtime = self.runtime.clone();
+        let runtime_req = RuntimeReadContext {
+            scope: req.scope,
+            query: req.query,
+            lens,
+            token_budget,
+        };
+        let package = tokio::task::spawn_blocking(move || runtime.read_context(runtime_req))
+            .await
+            .map_err(|e| RpcError::Internal(e.to_string()))?
+            .map_err(map_runtime_err)?;
+        Ok(ReadContextResponse { package })
+    }
+
+    async fn inspect_provenance(
+        &self,
+        req: InspectProvenanceRequest,
+    ) -> Result<InspectProvenanceResponse, RpcError> {
+        let report = self
+            .runtime
+            .inspect_provenance(&req.context_package_id)
+            .ok_or_else(|| {
+                RpcError::NotFound(format!(
+                    "context package {} not in cache (it may have aged out)",
+                    req.context_package_id
+                ))
+            })?;
+        Ok(InspectProvenanceResponse { report })
+    }
+
+    async fn list_conflicts(
+        &self,
+        req: ListConflictsRequest,
+    ) -> Result<ListConflictsResponse, RpcError> {
+        let runtime = self.runtime.clone();
+        let conflicts =
+            tokio::task::spawn_blocking(move || runtime.list_conflicts(req.include_resolved))
+                .await
+                .map_err(|e| RpcError::Internal(e.to_string()))?
+                .map_err(map_runtime_err)?;
+        Ok(ListConflictsResponse { conflicts })
+    }
+
+    async fn get_conflict(
+        &self,
+        req: GetConflictRequest,
+    ) -> Result<GetConflictResponse, RpcError> {
+        let runtime = self.runtime.clone();
+        let id = req.conflict_id.clone();
+        let conflict = tokio::task::spawn_blocking(move || runtime.get_conflict(&id))
+            .await
+            .map_err(|e| RpcError::Internal(e.to_string()))?
+            .map_err(map_runtime_err)?;
+        let conflict =
+            conflict.ok_or_else(|| RpcError::NotFound(format!("conflict {}", req.conflict_id)))?;
+        Ok(GetConflictResponse { conflict })
+    }
+
+    async fn resolve_conflict(
+        &self,
+        req: ResolveConflictRequest,
+    ) -> Result<ResolveConflictResponse, RpcError> {
+        let action = match req.action {
+            ResolveConflictAction::Pick { winner } => ResolutionAction::Pick { winner },
+            ResolveConflictAction::Merge {
+                text,
+                subject,
+                predicate,
+                object,
+                confidence,
+            } => ResolutionAction::Merge {
+                text,
+                subject,
+                predicate,
+                object,
+                confidence,
+            },
+            ResolveConflictAction::RejectAll => ResolutionAction::RejectAll,
+        };
+        let runtime = self.runtime.clone();
+        let id = req.conflict_id;
+        let conflict =
+            tokio::task::spawn_blocking(move || runtime.resolve_conflict(&id, action))
+                .await
+                .map_err(|e| RpcError::Internal(e.to_string()))?
+                .map_err(map_runtime_err)?;
+        Ok(ResolveConflictResponse { conflict })
+    }
+
+    async fn daemon_rebuild_indexes(&self) -> Result<RebuildIndexesResponse, RpcError> {
+        let runtime = self.runtime.clone();
+        let reindexed = tokio::task::spawn_blocking(move || runtime.rebuild_indexes())
+            .await
+            .map_err(|e| RpcError::Internal(e.to_string()))?
+            .map_err(map_runtime_err)?;
+        Ok(RebuildIndexesResponse { reindexed })
+    }
+
+    async fn worker_status(
+        &self,
+        _req: WorkerStatusRequest,
+    ) -> Result<WorkerStatusResponse, RpcError> {
+        let runtime = self.runtime.clone();
+        let status = tokio::task::spawn_blocking(move || runtime.worker_status())
+            .await
+            .map_err(|e| RpcError::Internal(e.to_string()))?
+            .map_err(map_runtime_err)?;
+        Ok(WorkerStatusResponse { status })
+    }
+
+    async fn why_memory(
+        &self,
+        req: WhyMemoryRequest,
+    ) -> Result<WhyMemoryResponse, RpcError> {
+        let runtime = self.runtime.clone();
+        let id = req.memory_id;
+        let report = tokio::task::spawn_blocking(move || runtime.why_memory(&id))
+            .await
+            .map_err(|e| RpcError::Internal(e.to_string()))?
+            .map_err(map_runtime_err)?;
+        Ok(WhyMemoryResponse { report })
+    }
+
+    fn notification_subscriber(
+        &self,
+    ) -> Option<tokio::sync::broadcast::Receiver<toffee_core::Notification>> {
+        Some(self.runtime.subscribe_notifications())
     }
 
     async fn daemon_shutdown(&self) -> Result<(), RpcError> {
@@ -174,6 +520,56 @@ impl Handler for DaemonHandler {
         Ok(())
     }
 }
+
+fn map_runtime_err(e: toffee_runtime::RuntimeError) -> RpcError {
+    match e {
+        toffee_runtime::RuntimeError::NotFound(m) => RpcError::NotFound(m),
+        toffee_runtime::RuntimeError::Store(s) => RpcError::Internal(s.to_string()),
+        toffee_runtime::RuntimeError::Vector(v) => RpcError::Internal(v.to_string()),
+        toffee_runtime::RuntimeError::InvalidInput(m) => RpcError::InvalidParams(m),
+        toffee_runtime::RuntimeError::AlreadyResolved(id) => {
+            RpcError::InvalidParams(format!("conflict {id} is already resolved"))
+        }
+    }
+}
+
+fn validate_add_memory(
+    kind: MemoryKind,
+    subject: &Option<String>,
+    predicate: &Option<String>,
+    object: &Option<String>,
+) -> Result<(), RpcError> {
+    if kind.requires_spo() && (subject.is_none() || predicate.is_none() || object.is_none()) {
+        return Err(RpcError::InvalidParams(format!(
+            "kind={} requires subject, predicate, and object",
+            kind.as_str()
+        )));
+    }
+    Ok(())
+}
+
+fn candidate_to_memory(c: MemoryCandidate, confidence: f64) -> toffee_core::Memory {
+    let now = chrono::Utc::now();
+    toffee_core::Memory {
+        id: MemoryId::generate(),
+        kind: c.kind,
+        scope: c.scope,
+        text: c.text,
+        subject: c.subject,
+        predicate: c.predicate,
+        object: c.object,
+        entities: c.entities,
+        confidence,
+        source_event_ids: c.source_event_ids,
+        created_at: now,
+        updated_at: now,
+        superseded_by: None,
+    }
+}
+
+// Quiet warnings about unused imports at the top of file.
+#[allow(dead_code)]
+fn _refs(_: Scope) {}
 
 /// Owns the pid file and its flock. Drop unlinks the file.
 struct PidLock {

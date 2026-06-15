@@ -4,6 +4,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = []
+# Expose helpers (in-memory store) for downstream test code. Not for prod.
+test-support = []
+
 [dependencies]
 toffee-core = { workspace = true }
 rusqlite = { workspace = true }

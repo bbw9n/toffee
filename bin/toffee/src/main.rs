@@ -28,6 +28,20 @@ enum Command {
     Daemon(commands::daemon::DaemonCmd),
     /// Inspect and append raw events.
     Event(commands::event::EventCmd),
+    /// Inspect, add, and curate memories.
+    Memory(commands::memory::MemoryCmd),
+    /// Inspect entities and their pages.
+    Entity(commands::entity::EntityCmd),
+    /// Assemble a memory-augmented context package for an agent prompt.
+    Context(commands::context::ContextCmd),
+    /// Explain why each memory was chosen for a given context package.
+    Provenance(commands::provenance::ProvenanceCmd),
+    /// List, show, and resolve contradicting facts.
+    Conflict(commands::conflict::ConflictCmd),
+    /// Background worker status and recent failures.
+    Worker(commands::worker::WorkerCmd),
+    /// Explain how a memory came to be.
+    Why(commands::why::WhyCmd),
 }
 
 fn main() -> Result<()> {
@@ -49,6 +63,13 @@ fn main() -> Result<()> {
         match cli.command {
             Command::Daemon(cmd) => commands::daemon::run(cmd, cli.format).await,
             Command::Event(cmd) => commands::event::run(cmd, cli.format).await,
+            Command::Memory(cmd) => commands::memory::run(cmd, cli.format).await,
+            Command::Entity(cmd) => commands::entity::run(cmd, cli.format).await,
+            Command::Context(cmd) => commands::context::run(cmd, cli.format).await,
+            Command::Provenance(cmd) => commands::provenance::run(cmd, cli.format).await,
+            Command::Conflict(cmd) => commands::conflict::run(cmd, cli.format).await,
+            Command::Worker(cmd) => commands::worker::run(cmd, cli.format).await,
+            Command::Why(cmd) => commands::why::run(cmd, cli.format).await,
         }
     })
 }

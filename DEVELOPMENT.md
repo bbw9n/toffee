@@ -1,0 +1,216 @@
+# Development guide
+
+This is the contributor's tour: how the workspace is laid out, where to put a change, and how to verify it.
+
+The companion documents are [`toffee_rfc_v1.md`](toffee_rfc_v1.md) (the design rationale) and [`toffee_rust_plan_v1.md`](toffee_rust_plan_v1.md) (the implementation plan that drove phases 0–7). When in doubt about why something is shaped a certain way, read the RFC first.
+
+---
+
+## Workspace layout
+
+```text
+toffee/
+├── crates/
+│   ├── toffee-core         # pure types and pure functions, no I/O
+│   ├── toffee-store        # SQLite persistence (only crate that imports rusqlite)
+│   ├── toffee-vector       # embedder trait + HNSW (only crate that imports hnsw_rs)
+│   ├── toffee-runtime      # write path, read path, background worker
+│   ├── toffee-rpc          # JSON-RPC wire types + server
+│   └── toffee-client       # async client that agents add to their Cargo.toml
+└── bin/
+    ├── toffeed             # daemon binary
+    └── toffee              # CLI for humans
+```
+
+The split is the design — each layer can only depend on layers below it. A few load-bearing rules:
+
+- **`toffee-core` has no I/O and no async.** Pure types, pure functions, formulas. This is what makes everything above it testable in isolation. Add types here; add `proptest` properties to `crates/toffee-core/tests/properties.rs`.
+- **`toffee-store` is the only crate that imports `rusqlite`.** All SQL lives here. Migrations are forward-only, versioned by integer (see [Schema migrations](#schema-migrations)).
+- **`toffee-vector` is the only crate that imports `hnsw_rs`.** All ANN and embedding code lives here. Use the `Embedder` trait to add backends; see [Embedder backends](#embedder-backends).
+- **`toffee-runtime` orchestrates.** It depends on core + store + vector. The `Runtime` struct is the facade the daemon and tests both use.
+- **`bin/` crates are wiring.** No business logic. The daemon's `Handler` impl just unwraps RPC requests and calls `Runtime` methods inside `spawn_blocking`.
+
+---
+
+## Build, test, bench
+
+```bash
+# Build everything (debug).
+cargo build --workspace
+
+# Build release binaries.
+cargo build --workspace --release
+
+# Run all tests.
+cargo test --workspace
+
+# Run latency benchmarks.
+cargo bench --bench runtime -p toffee-runtime
+
+# A faster bench cycle for iteration:
+cargo bench --bench runtime -p toffee-runtime -- --measurement-time 2 --warm-up-time 1
+```
+
+There are 100+ tests across the workspace. The big buckets:
+
+| Suite | Lives in | What it covers |
+|---|---|---|
+| Unit tests | per-crate `src/*/tests` mods | Per-module logic in isolation. |
+| Property tests | `crates/toffee-core/tests/properties.rs` | Scalar formulas, scope expansion, token estimation under random inputs. |
+| Worker pipeline | `crates/toffee-runtime/tests/worker_pipeline.rs` | Event → memory + entities + vector index. |
+| Read path | `crates/toffee-runtime/tests/read_path.rs` | `read_context` bucketing, lens, provenance. |
+| Conflicts | `crates/toffee-runtime/tests/conflicts.rs` | Dedup + each resolution mode. |
+| Observability | `crates/toffee-runtime/tests/observability.rs` | Worker status, failure tracking, notifications. |
+| Daemon round-trip | `bin/toffeed/tests/integrator_flow.rs` | A real `toffeed` spawned and driven via `toffee-client`. |
+| Notifications over the wire | `bin/toffeed/tests/observability_flow.rs` | `toffee.memory.promoted` delivered through the real socket. |
+| Crash safety | `bin/toffeed/tests/crash_safety.rs` | SIGKILL mid-write, mid-worker, pid-lock release. |
+
+Run a single suite with `cargo test -p <crate> --test <name>`.
+
+---
+
+## Latency targets
+
+From RFC §6, currently met by 2–3 orders of magnitude:
+
+| Operation | Target (p99) | Measured median (in-process, hash embedder) |
+|---|---|---|
+| `append_event` | 5 ms | ~7.6 µs |
+| `search_memory` (top-20, 100 memories) | 50 ms | ~170 µs |
+| `read_context` (3000-token budget, 500 memories) | 100 ms | ~1.14 ms |
+
+CLI / IPC adds ~5–10 ms on top.
+
+Reproduce with `cargo bench --bench runtime -p toffee-runtime`. If a regression > 20% appears, that's a real issue.
+
+---
+
+## How to make common changes
+
+### Schema migrations
+
+Migrations live in `crates/toffee-store/src/schema.rs` as a `&[(version: i64, sql: &str)]` array. They run in array order, each only applied if its version is above the current `schema_version` row.
+
+Adding a migration is the only thing that needs the array — everything downstream works off `Store` methods.
+
+```rust
+// crates/toffee-store/src/schema.rs
+const MIGRATIONS: &[(i64, &str)] = &[
+    // ... existing ones ...
+    (6, r#"
+        CREATE TABLE my_new_table ( ... );
+        CREATE INDEX ...;
+    "#),
+];
+```
+
+Then add the CRUD methods in a sibling module (e.g. `crates/toffee-store/src/my_new_table.rs`), register it in `lib.rs`, and write unit tests against `Store::open_in_memory()`.
+
+### Adding an RPC method
+
+The method lands in five places. There's no codegen — it's hand-rolled JSON-RPC because the surface is small.
+
+1. **Wire type** in `crates/toffee-rpc/src/methods.rs`. Define `XxxRequest` / `XxxResponse`. Add a constant to `mod method_names` and include it in `method_names::all()` (this is what `toffee.hello` reports as supported).
+2. **Export** the new types from `crates/toffee-rpc/src/lib.rs`.
+3. **`Handler` trait** in `crates/toffee-rpc/src/server.rs`. Add the async method signature. Add the dispatch arm in `dispatch()`.
+4. **Runtime method** in `crates/toffee-runtime/src/lib.rs`. The actual logic. Tests against an in-memory `Runtime`.
+5. **Daemon handler** in `bin/toffeed/src/main.rs`. Wrap the runtime call in `spawn_blocking` and convert errors via `map_runtime_err`.
+6. **Client wrapper** in `crates/toffee-client/src/lib.rs`. A thin async method that calls `self.call(method_names::XXX, req)`.
+7. **CLI subcommand** in `bin/toffee/src/commands/` if the surface is user-facing.
+
+For methods that mutate state, also consider whether the worker should emit a [`Notification`](#notifications) afterward.
+
+### Adding a memory kind
+
+If you want a fifth memory kind (e.g. `procedure`):
+
+1. Extend `MemoryKind` in `crates/toffee-core/src/memory.rs`. Add the `as_str` / `parse` entries.
+2. Update `Lens::default_lens()` (`crates/toffee-core/src/context.rs`) with a budget weight.
+3. Update the `ContextPackage` markdown rendering if the new kind should appear in a specific section order.
+4. Update the schema `CHECK` constraint in migration 2 only if the SPO requirement changes — but at this point you'd add a new migration that relaxes / tightens the CHECK, never edit a past migration.
+5. Add an extractor pattern in `crates/toffee-runtime/src/extractor.rs` if it should land automatically.
+
+### Notifications
+
+Daemon → client notifications go through `Runtime::emit(Notification::...)`. Each connection task subscribes (`Handler::notification_subscriber`) and writes them out as JSON-RPC notification frames.
+
+To add a new notification variant:
+
+1. Extend `Notification` in `crates/toffee-core/src/observability.rs`. The `#[serde(tag = "method", content = "params", rename_all = "snake_case")]` envelope makes the wire shape derive automatically.
+2. Emit it from the runtime via `inner.emit(Notification::YourNew { … })`.
+
+Clients pick it up via `Client::subscribe_notifications()` → `broadcast::Receiver<Notification>`.
+
+### Embedder backends
+
+The current default is `HashEmbedder` (deterministic feature hashing). The `Embedder` trait (`crates/toffee-vector/src/embedder.rs`) is the seam for a real semantic backend.
+
+```rust
+pub trait Embedder: Send + Sync + 'static {
+    fn model(&self) -> &str;
+    fn dim(&self) -> usize;
+    fn embed(&self, text: &str) -> Result<Vec<f32>>;
+    fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> { … }
+}
+```
+
+To swap in a candle-backed BGE:
+
+1. Add the backend impl behind a cargo feature on `toffee-vector` (`candle` is reserved for this; `metal = ["candle"]` further opts into Metal).
+2. Wire it into the daemon (`bin/toffeed/src/main.rs`):
+
+```rust
+#[cfg(feature = "candle")]
+let embedder: Arc<dyn Embedder> = Arc::new(CandleBgeEmbedder::load(...)?);
+#[cfg(not(feature = "candle"))]
+let embedder: Arc<dyn Embedder> = Arc::new(HashEmbedder::default());
+let vector = Arc::new(VectorIndex::new(embedder.dim()));
+let runtime = Runtime::with_components(store, embedder, vector);
+```
+
+Existing embeddings under the old model are tagged with `model = "hash-feature-v1"` in SQLite. The runtime's `load_index_from_store()` filters by the current model name, so old vectors are ignored; `toffee daemon rebuild-indexes` re-embeds the active memory set under the new model.
+
+The model packaging decision (ship weights vs. lazy-download via `toffee daemon prefetch-models`) is RFC §11 open question #2. The CLI command exists as a stub today.
+
+---
+
+## How the daemon recovers from a crash
+
+Three things guarantee crash safety:
+
+1. **The event log is the source of truth.** Events are written through `INSERT` in a single statement before `append_event` returns. SQLite WAL + `synchronous=NORMAL` makes that durable across hard kill.
+2. **The worker keeps a checkpoint.** After processing each event the worker updates `worker_state.last_processed_event_id`. On startup the worker reads the checkpoint and picks up at the next event. At-most-once durability + idempotent inserts mean re-processing one or two events is harmless.
+3. **The vector index rehydrates from SQLite.** On startup, `toffeed` reads every embedding row for the active model and re-inserts them into the in-memory HNSW. The HNSW file format is not used today; the rebuild is fast enough at the scale the plan targets.
+
+The pid lock is acquired via `flock(LOCK_EX | LOCK_NB)` on `$XDG_RUNTIME_DIR/toffee/toffeed.pid`. SIGKILL releases the lock at the kernel level, so the next start can claim it cleanly.
+
+`bin/toffeed/tests/crash_safety.rs` verifies all three.
+
+---
+
+## Phase history
+
+Toffee was built in eight phases following `toffee_rust_plan_v1.md`:
+
+| Phase | Milestone |
+|---|---|
+| 0 | Event log + daemon socket + minimal CLI. |
+| 1 | Memory items + heuristic worker + record_feedback. |
+| 2 | Entity index + scope inheritance. |
+| 3 | Vector index (HNSW + hash embedder) + search_memory. |
+| 4 | **`read_context` and `toffee-client` v0.1.** The first integrator-visible milestone. |
+| 5 | Conflict UX (dedup + pick / merge / reject-all). |
+| 6 | Observability (worker status, notifications, `toffee why`). |
+| 7 | Hardening (property tests, criterion benches, crash-safety tests). |
+
+Anything new should land in a similar incremental style: a small spike with tests at each layer, then the wire / CLI surface on top.
+
+---
+
+## Style
+
+- **Idiomatic Rust, conservative on dependencies.** New crates need to justify themselves.
+- **No comments that say what the code does.** Use comments only for the *why* — a non-obvious invariant, a workaround, a deliberate trade-off.
+- **Tests live next to the thing they test.** Unit tests in `#[cfg(test)] mod tests` blocks; integration tests in `tests/` directories.
+- **Errors propagate.** `Result` everywhere; `thiserror` for typed errors; `anyhow` only in binaries.
+- **Async is `tokio`.** Blocking work goes through `spawn_blocking`.

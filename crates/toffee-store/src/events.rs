@@ -85,6 +85,12 @@ impl Store {
     }
 }
 
+/// Re-exported for sibling store modules (`worker_state`) that need to
+/// hydrate events from arbitrary queries.
+pub(crate) fn row_to_event_public(row: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
+    row_to_event(row)
+}
+
 fn row_to_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
     let id: String = row.get(0)?;
     let scope_json: String = row.get(1)?;

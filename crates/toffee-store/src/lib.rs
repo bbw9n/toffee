@@ -6,8 +6,14 @@
 //! traffic is naturally serialized per-connection. A pool comes later if
 //! contention shows up.
 
+mod conflicts;
+mod embeddings;
+mod entities;
 mod events;
+mod memories;
 mod schema;
+mod worker_failures;
+mod worker_state;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -15,7 +21,11 @@ use std::sync::Mutex;
 use rusqlite::Connection;
 use thiserror::Error;
 
+pub use embeddings::{EmbeddingRow, NewEmbedding};
+pub use entities::EntityListFilter;
 pub use events::EventRecord;
+pub use memories::MemoryListFilter;
+pub use worker_state::{WorkerCheckpoint, DEFAULT_WORKER_ID};
 
 #[derive(Debug, Error)]
 pub enum StoreError {
@@ -27,6 +37,9 @@ pub enum StoreError {
 
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("parse error: {0}")]
+    Parse(String),
 
     #[error("not found: {0}")]
     NotFound(String),
@@ -60,7 +73,7 @@ impl Store {
     }
 
     /// In-memory store for tests.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         schema::migrate(&conn)?;

@@ -34,6 +34,13 @@ enum DaemonAction {
         #[arg(short, long)]
         follow: bool,
     },
+    /// Drop and recompute the vector index from durable memories.
+    RebuildIndexes,
+    /// Pre-fetch embedding model weights. Today's HashEmbedder needs no
+    /// weights, so this command reports the active model and exits. The
+    /// command exists so the surface is stable once a real candle-backed
+    /// BGE-small embedder ships (RFC §11, open question #2).
+    PrefetchModels,
 }
 
 pub async fn run(cmd: DaemonCmd, fmt: OutputFormat) -> Result<()> {
@@ -43,7 +50,55 @@ pub async fn run(cmd: DaemonCmd, fmt: OutputFormat) -> Result<()> {
         DaemonAction::Stop => stop(effective).await,
         DaemonAction::Status => status(effective).await,
         DaemonAction::Logs { follow } => logs(follow).await,
+        DaemonAction::RebuildIndexes => rebuild_indexes(effective).await,
+        DaemonAction::PrefetchModels => prefetch_models(effective).await,
     }
+}
+
+async fn prefetch_models(fmt: Effective) -> Result<()> {
+    let client = Client::connect().await.context("connect to daemon")?;
+    let info = client.hello("toffee-cli", env!("CARGO_PKG_VERSION")).await?;
+    let model = info
+        .supported_methods
+        .iter()
+        .find(|_| false)
+        .cloned()
+        .unwrap_or_else(|| "hash-feature-v1".to_string());
+    // We don't have a direct `model_name()` RPC on the daemon today; the
+    // hash embedder is the only backend, so report that explicitly.
+    let _ = model; // silence unused-warning shape
+    let active_model = "hash-feature-v1";
+    match fmt {
+        Effective::Human => {
+            println!("active embedding model: {active_model}");
+            println!(
+                "no weights to prefetch — the hash embedder has no model artifacts.\n\
+                 this command is a placeholder for the future candle-backed BGE-small\n\
+                 backend (see RFC §11 open question #2)."
+            );
+        }
+        Effective::Json => {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "model": active_model,
+                    "status": "noop",
+                    "reason": "hash-embedder requires no model weights",
+                })
+            );
+        }
+    }
+    Ok(())
+}
+
+async fn rebuild_indexes(fmt: Effective) -> Result<()> {
+    let client = Client::connect().await.context("connect to daemon")?;
+    let n = client.rebuild_indexes().await?;
+    match fmt {
+        Effective::Human => println!("reindexed {n} memories"),
+        Effective::Json => println!("{}", json!({"reindexed": n})),
+    }
+    Ok(())
 }
 
 async fn start(foreground: bool, fmt: Effective) -> Result<()> {

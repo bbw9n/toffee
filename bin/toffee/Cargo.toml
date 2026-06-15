@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 toffee-core = { workspace = true }
 toffee-client = { workspace = true }
+toffee-rpc = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }

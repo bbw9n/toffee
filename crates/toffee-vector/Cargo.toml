@@ -1,0 +1,23 @@
+[package]
+name = "toffee-vector"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+# Placeholder for the future candle-backed BGE-small embedder. Enabling it
+# today does nothing — the HashEmbedder is still the default. The feature
+# advertises the toggle so callers can opt in when the real backend lands.
+candle = []
+# Enable Metal acceleration in the candle backend. No effect without the
+# `candle` feature.
+metal = ["candle"]
+
+[dependencies]
+toffee-core = { workspace = true }
+hnsw_rs = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }

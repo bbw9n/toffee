@@ -11,7 +11,15 @@ pub mod wire;
 
 pub use framing::{read_message, write_message};
 pub use methods::{
-    AppendEventRequest, AppendEventResponse, HelloRequest, HelloResponse, ServerInfo,
+    AddMemoryRequest, AddMemoryResponse, AppendEventRequest, AppendEventResponse,
+    ForgetMemoryRequest, GetConflictRequest, GetConflictResponse, GetEntityPageRequest,
+    GetEntityPageResponse, GetMemoryRequest, GetMemoryResponse, HelloRequest, HelloResponse,
+    InspectProvenanceRequest, InspectProvenanceResponse, ListConflictsRequest,
+    ListConflictsResponse, ListEntitiesRequest, ListEntitiesResponse, ListMemoriesRequest,
+    ListMemoriesResponse, ReadContextRequest, ReadContextResponse, RebuildIndexesResponse,
+    RecordFeedbackRequest, RecordFeedbackResponse, ResolveConflictAction, ResolveConflictRequest,
+    ResolveConflictResponse, SearchMemoryHit, SearchMemoryRequest, SearchMemoryResponse,
+    ServerInfo, WhyMemoryRequest, WhyMemoryResponse, WorkerStatusRequest, WorkerStatusResponse,
 };
 pub use server::{serve, Handler, RpcError};
 pub use wire::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, RequestId};
