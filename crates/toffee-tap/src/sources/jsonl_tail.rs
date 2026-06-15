@@ -46,9 +46,8 @@ impl JsonlTailer {
         let inode = meta.ino();
 
         // Persist a fresh entry so subsequent reads see a stable record.
-        let mut new_entry = entry.unwrap_or_else(|| {
-            RegistryEntry::new(source_kind, path.display().to_string(), inode)
-        });
+        let mut new_entry = entry
+            .unwrap_or_else(|| RegistryEntry::new(source_kind, path.display().to_string(), inode));
         new_entry.inode = inode;
         new_entry.last_offset = resume;
         new_entry.source_kind = source_kind.to_string();
@@ -134,7 +133,7 @@ pub(crate) fn discover(pattern: &str) -> Vec<PathBuf> {
             .collect(),
         Err(_) => return Vec::new(),
     };
-    hits.sort_by(|a, b| b.1.cmp(&a.1));
+    hits.sort_by_key(|b| std::cmp::Reverse(b.1));
     hits.into_iter().map(|(p, _)| p).collect()
 }
 

@@ -1,0 +1,27 @@
+[package]
+name = "toffee-eval"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+publish = false
+
+[lib]
+name = "toffee_eval"
+path = "src/lib.rs"
+
+[[bin]]
+name = "toffee-eval"
+path = "src/bin/toffee-eval.rs"
+
+[dependencies]
+toffee-core = { workspace = true }
+toffee-store = { workspace = true, features = ["test-support"] }
+toffee-runtime = { workspace = true }
+toffee-vector = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+chrono = { workspace = true }

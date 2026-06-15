@@ -55,7 +55,12 @@ pub async fn run(cmd: EventCmd, fmt: OutputFormat) -> Result<()> {
             payload,
             session_id,
             run_id,
-        } => append(event_type, scope, actor, payload, session_id, run_id, effective).await,
+        } => {
+            append(
+                event_type, scope, actor, payload, session_id, run_id, effective,
+            )
+            .await
+        }
     }
 }
 

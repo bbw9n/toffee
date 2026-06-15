@@ -97,7 +97,12 @@ pub async fn run(cmd: MemoryCmd, fmt: OutputFormat) -> Result<()> {
             predicate,
             object,
             confidence,
-        } => add(kind, scope, text, subject, predicate, object, confidence, effective).await,
+        } => {
+            add(
+                kind, scope, text, subject, predicate, object, confidence, effective,
+            )
+            .await
+        }
         MemoryAction::Forget { id } => forget(id, effective).await,
         MemoryAction::Search {
             query,
@@ -202,7 +207,9 @@ async fn show(id: String, fmt: Effective) -> Result<()> {
             println!("kind:       {}", memory.kind.as_str());
             println!("confidence: {:.2}", memory.confidence);
             println!("scope:      {}", memory.scope.as_slice().join(", "));
-            if let (Some(s), Some(p), Some(o)) = (&memory.subject, &memory.predicate, &memory.object) {
+            if let (Some(s), Some(p), Some(o)) =
+                (&memory.subject, &memory.predicate, &memory.object)
+            {
                 println!("spo:        {s} -- {p} --> {o}");
             }
             println!("text:       {}", memory.text);
@@ -250,6 +257,8 @@ async fn feedback(id: String, kind_str: String, fmt: Effective) -> Result<()> {
     Ok(())
 }
 
+// Mirrors the SPO memory shape and the `add` CLI flags one-to-one.
+#[allow(clippy::too_many_arguments)]
 async fn add(
     kind_str: String,
     scope: Vec<String>,

@@ -5,7 +5,9 @@ use anyhow::{Context, Result};
 use clap::Args;
 use toffee_client::Client;
 use toffee_tap::sink::ClientSink;
-use toffee_tap::{Config, FileSourceConfig, Runner, RunnerOptions, SourceConfig, StdinSourceConfig};
+use toffee_tap::{
+    Config, FileSourceConfig, Runner, RunnerOptions, SourceConfig, StdinSourceConfig,
+};
 
 use crate::OutputFormat;
 
@@ -33,8 +35,8 @@ pub async fn run(cmd: TapCmd, _fmt: OutputFormat) -> Result<()> {
     let config = if !cmd.from.is_empty() {
         build_config_from_flags(&cmd.from, &cmd.scope)?
     } else if let Some(path) = &cmd.config {
-        let text = std::fs::read_to_string(path)
-            .with_context(|| format!("read config {path:?}"))?;
+        let text =
+            std::fs::read_to_string(path).with_context(|| format!("read config {path:?}"))?;
         toffee_tap::Config::from_toml(&text).context("parse config TOML")?
     } else {
         let mut c = Config::default_pair();
@@ -66,7 +68,10 @@ pub async fn run(cmd: TapCmd, _fmt: OutputFormat) -> Result<()> {
     .context("build runner")?;
 
     eprintln!("toffee tap: streaming agent transcripts → toffeed. Ctrl-C to stop.");
-    runner.run(shutdown_rx).await.context("runner exited with error")?;
+    runner
+        .run(shutdown_rx)
+        .await
+        .context("runner exited with error")?;
     Ok(())
 }
 
@@ -98,7 +103,11 @@ fn split_kind(spec: &str) -> (&str, Option<&str>) {
 fn file_cfg(arg: Option<&str>, scope: &[String]) -> FileSourceConfig {
     FileSourceConfig {
         path: arg.map(PathBuf::from),
-        scope: if scope.is_empty() { None } else { Some(scope.to_vec()) },
+        scope: if scope.is_empty() {
+            None
+        } else {
+            Some(scope.to_vec())
+        },
         scope_auto: scope.is_empty(),
         scope_fallback: vec!["global".into()],
     }
@@ -107,7 +116,11 @@ fn file_cfg(arg: Option<&str>, scope: &[String]) -> FileSourceConfig {
 fn stdin_cfg(prefix: Option<&str>, scope: &[String]) -> StdinSourceConfig {
     StdinSourceConfig {
         user_prefix: prefix.map(|s| s.to_string()),
-        scope: if scope.is_empty() { None } else { Some(scope.to_vec()) },
+        scope: if scope.is_empty() {
+            None
+        } else {
+            Some(scope.to_vec())
+        },
         scope_fallback: vec!["global".into()],
     }
 }

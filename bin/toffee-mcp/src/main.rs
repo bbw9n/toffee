@@ -16,8 +16,8 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use rmcp::ServiceExt;
 use rmcp::transport::stdio;
+use rmcp::ServiceExt;
 use tracing_subscriber::EnvFilter;
 
 mod server;

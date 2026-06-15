@@ -161,7 +161,10 @@ async fn worker_resumes_from_checkpoint_after_sigkill() {
     let s = client.worker_status().await.unwrap();
     assert_eq!(s.queue_depth, 0, "queue should be drained at restart");
     assert!(s.memories_active >= 1);
-    assert!(s.last_processed_event_id.is_some(), "checkpoint should be intact");
+    assert!(
+        s.last_processed_event_id.is_some(),
+        "checkpoint should be intact"
+    );
 
     // Append a new event post-restart; it must flow through and produce a
     // memory.

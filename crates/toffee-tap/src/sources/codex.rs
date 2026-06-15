@@ -66,14 +66,15 @@ impl CodexSource {
     }
 
     fn rediscover(&mut self) {
-        let pattern = format!(
-            "{}/**/rollout-*.jsonl",
-            self.discovery_root.display()
-        );
+        let pattern = format!("{}/**/rollout-*.jsonl", self.discovery_root.display());
         let found = discover(&pattern);
         for p in found {
             let key = p.display().to_string();
-            if self.tailers.iter().any(|t| t.path.display().to_string() == key) {
+            if self
+                .tailers
+                .iter()
+                .any(|t| t.path.display().to_string() == key)
+            {
                 continue;
             }
             match JsonlTailer::open_with_registry(p.clone(), SOURCE_KIND, &self.registry) {
@@ -96,7 +97,7 @@ impl Source for CodexSource {
     }
 
     async fn read_next(&mut self) -> Result<Vec<RawTurn>, SourceError> {
-        if self.tailers.is_empty() || self.ticks % self.rediscover_every == 0 {
+        if self.tailers.is_empty() || self.ticks.is_multiple_of(self.rediscover_every) {
             self.rediscover();
         }
         self.ticks = self.ticks.wrapping_add(1);
@@ -108,7 +109,12 @@ impl Source for CodexSource {
                 continue;
             }
             let path_key = tailer.path.display().to_string();
-            for TailedLine { line, next_offset, line_number } in lines {
+            for TailedLine {
+                line,
+                next_offset,
+                line_number,
+            } in lines
+            {
                 let raw: Result<CodexRecord, _> = serde_json::from_str(&line);
                 let parsed = match raw {
                     Ok(r) => r,
@@ -135,7 +141,10 @@ impl Source for CodexSource {
                         ) {
                             self.session_meta.insert(
                                 path_key.clone(),
-                                SessionMeta { id: id.to_string(), cwd },
+                                SessionMeta {
+                                    id: id.to_string(),
+                                    cwd,
+                                },
                             );
                         }
                     }
@@ -322,8 +331,10 @@ mod tests {
 
     #[test]
     fn skips_reasoning_and_function_calls() {
-        let p: Value =
-            serde_json::from_str(r#"{"type":"reasoning","summary":[{"type":"summary_text","text":"…"}]}"#).unwrap();
+        let p: Value = serde_json::from_str(
+            r#"{"type":"reasoning","summary":[{"type":"summary_text","text":"…"}]}"#,
+        )
+        .unwrap();
         assert!(parse_response_item(&p, None, Some(&meta()), Path::new("/x"), 1, 1).is_none());
     }
 }

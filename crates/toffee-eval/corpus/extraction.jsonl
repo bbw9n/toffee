@@ -1,0 +1,22 @@
+// Extraction corpus: one event per line, with the memories the worker should
+// (or should not) produce. Empty "expect" is a negative case. Grow by
+// appending — real lines come from TAP captures of Claude Code / Codex.
+//
+// Preferences ------------------------------------------------------------
+{"name":"prefer-concise","input":"I prefer concise responses.","expect":[{"kind":"preference","subject":"user","predicate":"prefers","object":"concise responses"}]}
+{"name":"always-tests","input":"I always write tests first.","expect":[{"kind":"preference","predicate":"always","object":"write tests first"}]}
+{"name":"never-force-push","input":"I never force-push to main.","expect":[{"kind":"preference","predicate":"never","object":"force-push to main"}]}
+// Decisions --------------------------------------------------------------
+{"name":"decision-rust","input":"We decided to go with Rust over Go.","expect":[{"kind":"decision","subject":"we","predicate":"decided","object":"Rust over Go"}]}
+{"name":"decision-tauri","input":"We've decided to use Tauri.","expect":[{"kind":"decision","predicate":"decided","object":"Tauri"}]}
+{"name":"lets-use-pg","input":"Let's use PostgreSQL for storage.","expect":[{"kind":"decision","predicate":"decided","object":"PostgreSQL for storage"}]}
+// Claims -----------------------------------------------------------------
+{"name":"parser-pest","input":"The parser uses Pest.","expect":[{"kind":"claim","subject":"parser","predicate":"uses","object":"Pest"}]}
+{"name":"gateway-grpc","input":"The gateway uses gRPC.","expect":[{"kind":"claim","subject":"gateway","predicate":"uses","object":"gRPC"}]}
+{"name":"my-editor","input":"My editor is Helix.","expect":[{"kind":"claim","subject":"user","predicate":"has-editor","object":"Helix"}]}
+{"name":"remember-staging","input":"Remember that the staging DB resets nightly.","expect":[{"kind":"claim","text_contains":"staging DB resets nightly"}]}
+// Negatives — the extractor must stay silent ----------------------------
+{"name":"neg-greeting","input":"hello world","expect":[]}
+{"name":"neg-question","input":"Can you help me refactor this function?","expect":[]}
+{"name":"neg-chitchat","input":"Thanks, that looks good.","expect":[]}
+{"name":"neg-agent-actor","input":"I prefer tabs over spaces.","actor":"agent","expect":[]}

@@ -40,7 +40,12 @@ impl Sink for MockSink {
     }
 }
 
-fn write_claude_session(root: &TempDir, project: &str, session_id: &str, lines: &[serde_json::Value]) -> std::path::PathBuf {
+fn write_claude_session(
+    root: &TempDir,
+    project: &str,
+    session_id: &str,
+    lines: &[serde_json::Value],
+) -> std::path::PathBuf {
     let dir = root.path().join("projects").join(project);
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join(format!("{session_id}.jsonl"));
@@ -52,7 +57,12 @@ fn write_claude_session(root: &TempDir, project: &str, session_id: &str, lines: 
     path
 }
 
-fn write_codex_rollout(root: &TempDir, day: &str, session: &str, lines: &[serde_json::Value]) -> std::path::PathBuf {
+fn write_codex_rollout(
+    root: &TempDir,
+    day: &str,
+    session: &str,
+    lines: &[serde_json::Value],
+) -> std::path::PathBuf {
     let dir = root.path().join("2026").join("05").join(day);
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join(format!("rollout-2026-05-{day}-{session}.jsonl"));
@@ -130,7 +140,11 @@ async fn ingests_synthetic_claude_session() {
     let _ = handle.await.unwrap();
 
     let events = sink.captured();
-    assert_eq!(events.len(), 2, "expected user + assistant, got {events:#?}");
+    assert_eq!(
+        events.len(),
+        2,
+        "expected user + assistant, got {events:#?}"
+    );
     assert_eq!(events[0].actor, Actor::User);
     assert_eq!(events[0].event_type, "claude_code.user_message");
     assert_eq!(events[0].scope.as_slice(), &["project:widget".to_string()]);

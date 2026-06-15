@@ -3149,7 +3149,24 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 1.0.69",
+ "toml",
  "ulid",
+]
+
+[[package]]
+name = "toffee-eval"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "serde",
+ "serde_json",
+ "toffee-core",
+ "toffee-runtime",
+ "toffee-store",
+ "toffee-vector",
+ "toml",
 ]
 
 [[package]]
@@ -3274,6 +3291,7 @@ dependencies = [
  "toffee-store",
  "toffee-vector",
  "tokio",
+ "toml",
  "tracing",
  "tracing-subscriber",
 ]

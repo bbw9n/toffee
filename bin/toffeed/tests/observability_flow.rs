@@ -49,7 +49,11 @@ impl Daemon {
             }
             std::thread::sleep(Duration::from_millis(25));
         }
-        Daemon { child, socket, _tmp: tmp }
+        Daemon {
+            child,
+            socket,
+            _tmp: tmp,
+        }
     }
 
     fn opts(&self) -> ConnectOptions {
@@ -112,12 +116,12 @@ async fn worker_status_and_why_memory_via_rpc() {
         .await
         .unwrap();
     assert!(!memories.is_empty());
-    let report = client
-        .why_memory(memories[0].id.clone())
-        .await
-        .unwrap();
+    let report = client.why_memory(memories[0].id.clone()).await.unwrap();
     assert_eq!(report.memory.id, memories[0].id);
-    assert!(!report.source_events.is_empty(), "expected at least one source event");
+    assert!(
+        !report.source_events.is_empty(),
+        "expected at least one source event"
+    );
 }
 
 #[tokio::test]

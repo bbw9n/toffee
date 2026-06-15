@@ -103,9 +103,7 @@ async fn read_context_respects_scope_inheritance() {
         updated_at: now,
         superseded_by: None,
     };
-    runtime
-        .insert_memory_and_link_entities(preference)
-        .unwrap();
+    runtime.insert_memory_and_link_entities(preference).unwrap();
 
     let package = runtime
         .read_context(ReadContextRequest {
@@ -117,7 +115,11 @@ async fn read_context_respects_scope_inheritance() {
         .unwrap();
 
     assert_eq!(package.claims.len(), 1);
-    assert_eq!(package.preferences.len(), 1, "user:me preference should surface");
+    assert_eq!(
+        package.preferences.len(),
+        1,
+        "user:me preference should surface"
+    );
 }
 
 #[tokio::test]
@@ -178,7 +180,10 @@ async fn read_context_surfaces_unresolved_conflicts() {
         })
         .unwrap();
 
-    assert!(!package.conflicts.is_empty(), "expected a conflict surfaced");
+    assert!(
+        !package.conflicts.is_empty(),
+        "expected a conflict surfaced"
+    );
 }
 
 #[tokio::test]
@@ -206,7 +211,10 @@ async fn provenance_records_sources_and_scores() {
     assert!(e.final_score > 0.0);
     assert!(e.sources.contains(&RetrievalSource::Vector));
     // The query mentions "parser", which is an auto-created entity.
-    assert!(e.entity_match, "query 'parser library' should anchor on parser entity");
+    assert!(
+        e.entity_match,
+        "query 'parser library' should anchor on parser entity"
+    );
     assert!(matches!(e.kept_in_kind, MemoryKind::Claim));
 }
 

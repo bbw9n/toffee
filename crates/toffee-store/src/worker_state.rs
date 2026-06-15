@@ -36,7 +36,9 @@ impl Store {
                 None => None,
                 Some(s) => Some(
                     DateTime::parse_from_rfc3339(&s)
-                        .map_err(|e| crate::StoreError::Parse(format!("worker_state.last_processed_at: {e}")))?
+                        .map_err(|e| {
+                            crate::StoreError::Parse(format!("worker_state.last_processed_at: {e}"))
+                        })?
                         .with_timezone(&Utc),
                 ),
             };

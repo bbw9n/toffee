@@ -58,8 +58,13 @@ impl VectorIndex {
         let max_nb_connection = 16;
         let max_layer = 16;
         let ef_construction = 200;
-        let hnsw =
-            Hnsw::<f32, DistCosine>::new(max_nb_connection, max_elements, max_layer, ef_construction, DistCosine {});
+        let hnsw = Hnsw::<f32, DistCosine>::new(
+            max_nb_connection,
+            max_elements,
+            max_layer,
+            ef_construction,
+            DistCosine {},
+        );
         VectorIndex {
             dim,
             inner: RwLock::new(Inner {
@@ -101,12 +106,7 @@ impl VectorIndex {
     /// Insert with an explicit seq id — used during rebuild from SQLite,
     /// where the stored `seq_id` should be preserved so the index lines up
     /// with the persisted `embeddings` table.
-    pub fn insert_with_seq(
-        &self,
-        seq: usize,
-        vector: &[f32],
-        point: IndexedPoint,
-    ) -> Result<()> {
+    pub fn insert_with_seq(&self, seq: usize, vector: &[f32], point: IndexedPoint) -> Result<()> {
         if vector.len() != self.dim {
             return Err(VectorError::DimensionMismatch {
                 expected: self.dim,
@@ -226,9 +226,7 @@ mod tests {
     #[test]
     fn dimension_mismatch_errors() {
         let idx = VectorIndex::new(4);
-        assert!(idx
-            .insert(&[1.0, 0.0, 0.0], point("a"))
-            .is_err());
+        assert!(idx.insert(&[1.0, 0.0, 0.0], point("a")).is_err());
         assert!(idx.search(&[1.0], 1, 16).is_err());
     }
 

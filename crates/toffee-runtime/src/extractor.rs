@@ -7,9 +7,7 @@
 use std::sync::LazyLock;
 
 use regex::Regex;
-use toffee_core::{
-    Actor, Event, ExtractionProvenance, MemoryCandidate, MemoryKind,
-};
+use toffee_core::{Actor, Event, ExtractionProvenance, MemoryCandidate, MemoryKind};
 
 static REMEMBER_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\bremember\s+(?:that\s+)?(.{3,})").unwrap());
@@ -17,23 +15,24 @@ static REMEMBER_RE: LazyLock<Regex> =
 static PREFER_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\bI\s+prefer\s+(.{2,})").unwrap());
 
-static MY_X_IS_Y_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)\bmy\s+([A-Za-z][A-Za-z0-9 _-]{0,40}?)\s+is\s+(.{2,})").unwrap());
+static MY_X_IS_Y_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\bmy\s+([A-Za-z][A-Za-z0-9 _-]{0,40}?)\s+is\s+(.{2,})").unwrap()
+});
 
 static DECISION_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\bwe(?:'ve| have)?\s+decided\s+(?:to\s+(?:go\s+with\s+|use\s+))?(.{2,})")
         .unwrap()
 });
 
-static USES_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)\bthe\s+([A-Za-z][A-Za-z0-9 _-]{0,30}?)\s+uses\s+(.{2,})").unwrap());
+static USES_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\bthe\s+([A-Za-z][A-Za-z0-9 _-]{0,30}?)\s+uses\s+(.{2,})").unwrap()
+});
 
 static LETS_USE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\blet'?s\s+use\s+(.{2,})").unwrap());
 
-static ALWAYS_NEVER_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\bI\s+(always|never)\s+(.{2,})").unwrap()
-});
+static ALWAYS_NEVER_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)\bI\s+(always|never)\s+(.{2,})").unwrap());
 
 pub fn extract(event: &Event) -> Vec<MemoryCandidate> {
     if !matches!(event.actor, Actor::User) {
@@ -73,7 +72,9 @@ pub fn extract(event: &Event) -> Vec<MemoryCandidate> {
         out.push(MemoryCandidate {
             kind: MemoryKind::Preference,
             scope: scope.clone(),
-            text: format!("User {verb}s {object}").replace("alwayss", "always").replace("nevers", "never"),
+            text: format!("User {verb}s {object}")
+                .replace("alwayss", "always")
+                .replace("nevers", "never"),
             subject: Some("user".into()),
             predicate: Some(verb),
             object: Some(object),

@@ -57,6 +57,29 @@ pub fn state_dir() -> PathBuf {
     }
 }
 
+/// `$XDG_CONFIG_HOME/toffee/` or platform default. Holds the user-editable
+/// `config.toml` that the daemon hot-reloads.
+pub fn config_dir() -> PathBuf {
+    if let Ok(p) = std::env::var("XDG_CONFIG_HOME") {
+        if !p.is_empty() {
+            return PathBuf::from(p).join("toffee");
+        }
+    }
+    let home = home_dir();
+    #[cfg(target_os = "macos")]
+    {
+        home.join("Library/Application Support/toffee")
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        home.join(".config/toffee")
+    }
+}
+
+pub fn config_file() -> PathBuf {
+    config_dir().join("config.toml")
+}
+
 pub fn socket_path() -> PathBuf {
     runtime_dir().join("toffeed.sock")
 }

@@ -8,10 +8,10 @@ use rmcp::model::{
     CallToolResult, Content, Implementation, ProtocolVersion, ServerCapabilities, ServerInfo,
 };
 use rmcp::{tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler};
-use tokio::sync::Mutex;
 use toffee_client::{Client, ClientError, ConnectOptions};
 use toffee_core::{FeedbackKind, MemoryId};
 use toffee_rpc::{ListMemoriesRequest, SearchMemoryRequest};
+use tokio::sync::Mutex;
 
 use crate::tools::{
     AddMemoryArgs, AppendEventArgs, ForgetMemoryArgs, GetMemoryArgs, ListMemoriesArgs,
@@ -58,9 +58,7 @@ impl ToffeeMcp {
             auto_spawn: !self.inner.args.no_autospawn,
             ..ConnectOptions::default()
         };
-        let client = Client::connect_with(opts)
-            .await
-            .map_err(map_client_err)?;
+        let client = Client::connect_with(opts).await.map_err(map_client_err)?;
         let client = Arc::new(client);
         *guard = Some(client.clone());
         Ok(client)
@@ -99,12 +97,16 @@ impl ToffeeMcp {
     ) -> Result<CallToolResult, McpError> {
         let scope = self.resolve_scope(args.scope)?;
         let client = self.client().await?;
-        let pkg = call_with_retry(self, |c| {
-            let scope = scope.clone();
-            let query = args.query.clone();
-            let budget = args.token_budget;
-            async move { c.read_context(scope, query, budget).await }
-        }, client)
+        let pkg = call_with_retry(
+            self,
+            |c| {
+                let scope = scope.clone();
+                let query = args.query.clone();
+                let budget = args.token_budget;
+                async move { c.read_context(scope, query, budget).await }
+            },
+            client,
+        )
         .await?;
 
         let markdown = pkg.render_markdown();
@@ -150,10 +152,14 @@ impl ToffeeMcp {
             min_similarity: args.min_similarity,
         };
         let client = self.client().await?;
-        let hits = call_with_retry(self, |c| {
-            let req = req.clone();
-            async move { c.search_memory(req).await }
-        }, client)
+        let hits = call_with_retry(
+            self,
+            |c| {
+                let req = req.clone();
+                async move { c.search_memory(req).await }
+            },
+            client,
+        )
         .await?;
 
         let body = serde_json::to_string_pretty(&hits)
@@ -187,10 +193,14 @@ impl ToffeeMcp {
             run_id: None,
         };
         let client = self.client().await?;
-        let event_id = call_with_retry(self, |c| {
-            let input = input.clone();
-            async move { c.append_event(input).await }
-        }, client)
+        let event_id = call_with_retry(
+            self,
+            |c| {
+                let input = input.clone();
+                async move { c.append_event(input).await }
+            },
+            client,
+        )
         .await?;
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::json!({ "event_id": event_id }).to_string(),
@@ -207,22 +217,27 @@ impl ToffeeMcp {
         Parameters(args): Parameters<AddMemoryArgs>,
     ) -> Result<CallToolResult, McpError> {
         let scope_vec = self.resolve_scope(args.scope)?;
-        let kind = parse_kind(args.kind.clone())
-            .ok_or_else(|| McpError::invalid_params(format!("unknown memory kind: {}", args.kind), None))?;
+        let kind = parse_kind(args.kind.clone()).ok_or_else(|| {
+            McpError::invalid_params(format!("unknown memory kind: {}", args.kind), None)
+        })?;
         let scope = toffee_core::Scope::new(scope_vec);
         let client = self.client().await?;
-        let mem = call_with_retry(self, |c| {
-            let scope = scope.clone();
-            let text = args.text.clone();
-            let subject = args.subject.clone();
-            let predicate = args.predicate.clone();
-            let object = args.object.clone();
-            let confidence = args.confidence;
-            async move {
-                c.add_memory(kind, scope, text, subject, predicate, object, confidence)
-                    .await
-            }
-        }, client)
+        let mem = call_with_retry(
+            self,
+            |c| {
+                let scope = scope.clone();
+                let text = args.text.clone();
+                let subject = args.subject.clone();
+                let predicate = args.predicate.clone();
+                let object = args.object.clone();
+                let confidence = args.confidence;
+                async move {
+                    c.add_memory(kind, scope, text, subject, predicate, object, confidence)
+                        .await
+                }
+            },
+            client,
+        )
         .await?;
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&mem)
@@ -241,10 +256,14 @@ impl ToffeeMcp {
         let kind = parse_feedback_kind(&args.kind)?;
         let memory_id = MemoryId(args.memory_id);
         let client = self.client().await?;
-        let resp = call_with_retry(self, |c| {
-            let memory_id = memory_id.clone();
-            async move { c.record_feedback(memory_id, kind).await }
-        }, client)
+        let resp = call_with_retry(
+            self,
+            |c| {
+                let memory_id = memory_id.clone();
+                async move { c.record_feedback(memory_id, kind).await }
+            },
+            client,
+        )
         .await?;
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::json!({
@@ -277,10 +296,14 @@ impl ToffeeMcp {
             query: args.query,
         };
         let client = self.client().await?;
-        let mems = call_with_retry(self, |c| {
-            let req = req.clone();
-            async move { c.list_memories(req).await }
-        }, client)
+        let mems = call_with_retry(
+            self,
+            |c| {
+                let req = req.clone();
+                async move { c.list_memories(req).await }
+            },
+            client,
+        )
         .await?;
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&mems)
@@ -295,10 +318,14 @@ impl ToffeeMcp {
     ) -> Result<CallToolResult, McpError> {
         let id = MemoryId(args.memory_id);
         let client = self.client().await?;
-        let mem = call_with_retry(self, |c| {
-            let id = id.clone();
-            async move { c.get_memory(id).await }
-        }, client)
+        let mem = call_with_retry(
+            self,
+            |c| {
+                let id = id.clone();
+                async move { c.get_memory(id).await }
+            },
+            client,
+        )
         .await?;
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&mem)
@@ -313,10 +340,14 @@ impl ToffeeMcp {
     ) -> Result<CallToolResult, McpError> {
         let id = MemoryId(args.memory_id);
         let client = self.client().await?;
-        call_with_retry(self, |c| {
-            let id = id.clone();
-            async move { c.forget_memory(id).await }
-        }, client)
+        call_with_retry(
+            self,
+            |c| {
+                let id = id.clone();
+                async move { c.forget_memory(id).await }
+            },
+            client,
+        )
         .await?;
         Ok(CallToolResult::success(vec![Content::text("ok")]))
     }
@@ -325,19 +356,17 @@ impl ToffeeMcp {
 #[tool_handler]
 impl ServerHandler for ToffeeMcp {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(
-            ServerCapabilities::builder().enable_tools().build(),
-        )
-        .with_server_info(Implementation::from_build_env())
-        .with_protocol_version(ProtocolVersion::V_2024_11_05)
-        .with_instructions(
-            "Toffee is a local memory layer. Before generating, call `read_context` with the \
+        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(Implementation::from_build_env())
+            .with_protocol_version(ProtocolVersion::V_2024_11_05)
+            .with_instructions(
+                "Toffee is a local memory layer. Before generating, call `read_context` with the \
              user's request to fetch relevant decisions, preferences, and claims. After the \
              turn, call `append_event` to record both the user message and your reply so the \
              memory grows. Use `search_memory` for ad-hoc lookups and `add_memory` to record a \
              specific fact directly."
-                .to_string(),
-        )
+                    .to_string(),
+            )
     }
 }
 
@@ -345,10 +374,9 @@ impl ServerHandler for ToffeeMcp {
 
 fn map_client_err(e: ClientError) -> McpError {
     match e {
-        ClientError::Rpc { code, message } => McpError::internal_error(
-            format!("toffeed rpc error ({code}): {message}"),
-            None,
-        ),
+        ClientError::Rpc { code, message } => {
+            McpError::internal_error(format!("toffeed rpc error ({code}): {message}"), None)
+        }
         ClientError::Io(io) => McpError::internal_error(format!("toffeed io error: {io}"), None),
         ClientError::Decode(s) => McpError::internal_error(format!("toffeed decode: {s}"), None),
         ClientError::SpawnFailed(s) => {
@@ -386,9 +414,7 @@ fn parse_feedback_kind(s: &str) -> Result<FeedbackKind, McpError> {
         "stale" | "outdated" => Ok(FeedbackKind::Stale),
         "correct" | "confirmed" | "right" => Ok(FeedbackKind::Correct),
         other => Err(McpError::invalid_params(
-            format!(
-                "unknown feedback kind: {other} (expected helpful|wrong|stale|correct)"
-            ),
+            format!("unknown feedback kind: {other} (expected helpful|wrong|stale|correct)"),
             None,
         )),
     }

@@ -87,10 +87,7 @@ impl Store {
         &self.path
     }
 
-    pub(crate) fn with_conn<R>(
-        &self,
-        f: impl FnOnce(&Connection) -> Result<R>,
-    ) -> Result<R> {
+    pub(crate) fn with_conn<R>(&self, f: impl FnOnce(&Connection) -> Result<R>) -> Result<R> {
         let guard = self.conn.lock().expect("store mutex poisoned");
         f(&guard)
     }

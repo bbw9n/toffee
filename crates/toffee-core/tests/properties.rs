@@ -5,7 +5,9 @@
 //! tests cover.
 
 use proptest::prelude::*;
-use toffee_core::scalars::{apply_feedback, compute_confidence, DISCARD_THRESHOLD, PROMOTE_THRESHOLD};
+use toffee_core::scalars::{
+    apply_feedback, compute_confidence, DISCARD_THRESHOLD, PROMOTE_THRESHOLD,
+};
 use toffee_core::{
     expand_inherited, ContextPackage, EventId, ExtractionProvenance, FeedbackKind, MemoryCandidate,
     MemoryKind, Scope,
@@ -46,10 +48,7 @@ fn candidate_strategy() -> impl Strategy<Value = MemoryCandidate> {
         any_provenance(),
         // Explicit confidence: arbitrary f64 (including NaN). Confidence
         // clamping should make sure NaN doesn't escape.
-        prop_oneof![
-            Just(None),
-            any::<f64>().prop_map(Some),
-        ],
+        prop_oneof![Just(None), any::<f64>().prop_map(Some),],
     )
         .prop_map(|(kind, provenance, explicit)| MemoryCandidate {
             kind,

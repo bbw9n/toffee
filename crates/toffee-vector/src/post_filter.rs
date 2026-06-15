@@ -28,18 +28,12 @@ pub fn apply(hits: Vec<IndexHit>, params: &FilterParams) -> Vec<IndexHit> {
     let mut out: Vec<IndexHit> = hits
         .into_iter()
         .filter(|h| h.similarity >= params.min_similarity)
-        .filter(|h| {
-            params
-                .kind
-                .map_or(true, |k| h.kind == k)
-        })
+        .filter(|h| params.kind.is_none_or(|k| h.kind == k))
         .filter(|h| match &params.scope_any_of {
             None => true,
             Some(scopes) => {
                 let hit_scopes = h.scope.as_slice();
-                scopes
-                    .iter()
-                    .any(|s| hit_scopes.iter().any(|hs| hs == s))
+                scopes.iter().any(|s| hit_scopes.iter().any(|hs| hs == s))
             }
         })
         .collect();
@@ -121,7 +115,14 @@ mod tests {
     #[test]
     fn limit_truncates() {
         let hits = (0..5)
-            .map(|i| h(&format!("m{i}"), &["g"], MemoryKind::Claim, 0.9 - i as f32 * 0.01))
+            .map(|i| {
+                h(
+                    &format!("m{i}"),
+                    &["g"],
+                    MemoryKind::Claim,
+                    0.9 - i as f32 * 0.01,
+                )
+            })
             .collect();
         let kept = apply(
             hits,

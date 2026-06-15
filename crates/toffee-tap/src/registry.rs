@@ -142,6 +142,10 @@ impl Registry {
     pub fn len(&self) -> usize {
         self.inner.lock().entries.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.lock().entries.is_empty()
+    }
 }
 
 /// Decide where the source should resume reading.
@@ -150,11 +154,10 @@ impl Registry {
 /// - if inode matches and `last_offset <= file_size`: resume at `last_offset`
 /// - if inode changed: rotation, start at 0
 /// - if `last_offset > file_size`: truncation, start at 0
-pub fn resume_offset(
-    entry: Option<&RegistryEntry>,
-    current_meta: &std::fs::Metadata,
-) -> u64 {
-    let Some(e) = entry else { return 0; };
+pub fn resume_offset(entry: Option<&RegistryEntry>, current_meta: &std::fs::Metadata) -> u64 {
+    let Some(e) = entry else {
+        return 0;
+    };
     if e.inode != current_meta.ino() {
         return 0;
     }

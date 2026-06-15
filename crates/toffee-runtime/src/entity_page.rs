@@ -22,11 +22,8 @@ pub fn build(
     let expanded_scopes = requested_scopes
         .as_ref()
         .map(|s| toffee_core::expand_inherited(s));
-    let memories = store.memories_for_entity(
-        &entity.id,
-        expanded_scopes.as_deref(),
-        PAGE_MEMORY_LIMIT,
-    )?;
+    let memories =
+        store.memories_for_entity(&entity.id, expanded_scopes.as_deref(), PAGE_MEMORY_LIMIT)?;
 
     let co_occurring = compute_co_occurrence(store, &entity.id, &memories)?;
 

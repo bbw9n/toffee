@@ -27,7 +27,7 @@ pub fn find(candidate: &MemoryCandidate, store: &Store) -> Result<Option<Conflic
     let matches = store.find_active_by_subject_predicate(&scope_strings, subject, predicate)?;
     let competing: Vec<Memory> = matches
         .into_iter()
-        .filter(|m| m.object.as_deref().map_or(true, |o| o != object))
+        .filter(|m| m.object.as_deref() != Some(object))
         .collect();
     if competing.is_empty() {
         Ok(None)

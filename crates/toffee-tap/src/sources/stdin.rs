@@ -30,12 +30,10 @@ impl StdinSource {
         let starts_with = user_prefix.clone();
         StdinSource {
             reader: Mutex::new(BufReader::new(tokio::io::stdin())),
-            accumulator: Arc::new(Mutex::new(MultilineAccumulator::new(
-                MultilineConfig {
-                    starts_with,
-                    ..Default::default()
-                },
-            ))),
+            accumulator: Arc::new(Mutex::new(MultilineAccumulator::new(MultilineConfig {
+                starts_with,
+                ..Default::default()
+            }))),
             user_prefix,
             session_id: format!("stdin-{}", chrono::Utc::now().timestamp()),
             next_turn_idx: 0,

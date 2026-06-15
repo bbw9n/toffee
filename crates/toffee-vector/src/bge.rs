@@ -101,12 +101,8 @@ impl BgeEmbedder {
         // mapping is owned by the resulting VarBuilder / BertModel and
         // outlives any tensor view into it. No aliasing.
         let vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(
-                &[weights_path.to_path_buf()],
-                DTYPE,
-                &device,
-            )
-            .map_err(|e| VectorError::Model(format!("load weights: {e}")))?
+            VarBuilder::from_mmaped_safetensors(&[weights_path.to_path_buf()], DTYPE, &device)
+                .map_err(|e| VectorError::Model(format!("load weights: {e}")))?
         };
         let model = BertModel::load(vb, &config)
             .map_err(|e| VectorError::Model(format!("build model: {e}")))?;
@@ -214,7 +210,7 @@ pub fn default_cache_dir() -> PathBuf {
     // Fall back to a sibling of $XDG_DATA_HOME/toffee/. Real callers
     // should pass an explicit path; this is just a last-resort default.
     dirs_data_home()
-        .unwrap_or_else(|| std::env::temp_dir())
+        .unwrap_or_else(std::env::temp_dir)
         .join("toffee")
         .join("models")
 }

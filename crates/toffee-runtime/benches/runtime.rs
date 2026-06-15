@@ -113,5 +113,10 @@ fn bench_read_context(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_append_event, bench_search_memory, bench_read_context);
+criterion_group!(
+    benches,
+    bench_append_event,
+    bench_search_memory,
+    bench_read_context
+);
 criterion_main!(benches);

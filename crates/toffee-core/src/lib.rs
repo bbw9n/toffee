@@ -3,6 +3,7 @@
 //! No I/O, no async. Everything in this crate is `Send + Sync` and trivial to
 //! construct in tests.
 
+pub mod config;
 pub mod conflict;
 pub mod context;
 pub mod entity;
@@ -13,6 +14,7 @@ pub mod paths;
 pub mod scalars;
 pub mod scope;
 
+pub use config::{Config, ScoringConfig};
 pub use conflict::{ConflictId, ConflictResolution, MemoryConflict};
 pub use context::{
     ContextPackage, ContextPackageId, Lens, ProvenanceEntry, ProvenanceReport, RetrievalSource,

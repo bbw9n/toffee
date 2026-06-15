@@ -101,16 +101,16 @@ async fn mcp_tools_list_and_round_trip() -> anyhow::Result<()> {
     let socket = daemon.socket.clone();
     let mcp_bin = toffee_mcp_bin();
     let client = ()
-        .serve(TokioChildProcess::new(TokioCommand::new(mcp_bin).configure(
-            |cmd| {
+        .serve(TokioChildProcess::new(
+            TokioCommand::new(mcp_bin).configure(|cmd| {
                 cmd.arg("--socket")
                     .arg(&socket)
                     .arg("--default-scope")
                     .arg("project:mcp_test")
                     .arg("--no-autospawn")
                     .stderr(Stdio::null());
-            },
-        ))?)
+            }),
+        )?)
         .await?;
 
     // tools/list
@@ -143,7 +143,7 @@ async fn mcp_tools_list_and_round_trip() -> anyhow::Result<()> {
         )
         .await?;
     assert!(
-        append.is_error.unwrap_or(false) == false,
+        !append.is_error.unwrap_or(false),
         "append_event reported error: {append:#?}"
     );
 
@@ -167,7 +167,10 @@ async fn mcp_tools_list_and_round_trip() -> anyhow::Result<()> {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    assert!(memory_found, "extractor never promoted a memory mentioning Pest");
+    assert!(
+        memory_found,
+        "extractor never promoted a memory mentioning Pest"
+    );
 
     // Read: assemble a context package and assert the memory shows up.
     let ctx = client
@@ -199,14 +202,14 @@ async fn mcp_rejects_call_without_scope() -> anyhow::Result<()> {
     let mcp_bin = toffee_mcp_bin();
     // No --default-scope this time; tool calls that omit `scope` must fail.
     let client = ()
-        .serve(TokioChildProcess::new(TokioCommand::new(mcp_bin).configure(
-            |cmd| {
+        .serve(TokioChildProcess::new(
+            TokioCommand::new(mcp_bin).configure(|cmd| {
                 cmd.arg("--socket")
                     .arg(&socket)
                     .arg("--no-autospawn")
                     .stderr(Stdio::null());
-            },
-        ))?)
+            }),
+        )?)
         .await?;
 
     let result = client

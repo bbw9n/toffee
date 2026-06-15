@@ -60,7 +60,11 @@ impl ClaudeCodeSource {
         let found = discover(&pattern);
         for p in found {
             let key = p.display().to_string();
-            if self.tailers.iter().any(|t| t.path.display().to_string() == key) {
+            if self
+                .tailers
+                .iter()
+                .any(|t| t.path.display().to_string() == key)
+            {
                 continue;
             }
             match JsonlTailer::open_with_registry(p.clone(), SOURCE_KIND, &self.registry) {
@@ -83,7 +87,7 @@ impl Source for ClaudeCodeSource {
     }
 
     async fn read_next(&mut self) -> Result<Vec<RawTurn>, SourceError> {
-        if self.tailers.is_empty() || self.ticks % self.rediscover_every == 0 {
+        if self.tailers.is_empty() || self.ticks.is_multiple_of(self.rediscover_every) {
             self.rediscover();
         }
         self.ticks = self.ticks.wrapping_add(1);
@@ -94,7 +98,12 @@ impl Source for ClaudeCodeSource {
             if lines.is_empty() {
                 continue;
             }
-            for TailedLine { line, next_offset, line_number } in lines {
+            for TailedLine {
+                line,
+                next_offset,
+                line_number,
+            } in lines
+            {
                 match parse_line(&line, &tailer.path, line_number, next_offset) {
                     Ok(Some(t)) => {
                         // Advance registry to next_offset on every successful turn.
@@ -247,7 +256,9 @@ mod tests {
     #[test]
     fn parses_user_message() {
         let line = r#"{"type":"user","sessionId":"s1","uuid":"u1","cwd":"/Users/me/code/widget","gitBranch":"main","timestamp":"2026-05-20T01:02:03.000Z","message":{"role":"user","content":"hello there"}}"#;
-        let t = parse_line(line, Path::new("/x/y.jsonl"), 1, 200).unwrap().unwrap();
+        let t = parse_line(line, Path::new("/x/y.jsonl"), 1, 200)
+            .unwrap()
+            .unwrap();
         assert_eq!(t.speaker, Speaker::User);
         assert_eq!(t.content, "hello there");
         assert_eq!(t.session_id, "s1");
@@ -258,7 +269,9 @@ mod tests {
     #[test]
     fn parses_assistant_text_blocks() {
         let line = r#"{"type":"assistant","sessionId":"s1","uuid":"u2","cwd":"/x","timestamp":"2026-05-20T01:02:03.000Z","message":{"role":"assistant","content":[{"type":"thinking","text":"hmm"},{"type":"text","text":"hi"},{"type":"text","text":"there"},{"type":"tool_use","name":"bash","input":{"cmd":"ls"}}]}}"#;
-        let t = parse_line(line, Path::new("/x/y.jsonl"), 2, 300).unwrap().unwrap();
+        let t = parse_line(line, Path::new("/x/y.jsonl"), 2, 300)
+            .unwrap()
+            .unwrap();
         assert_eq!(t.speaker, Speaker::Assistant);
         assert_eq!(t.content, "hi\nthere");
         // The thinking and tool_use blocks land in extra.content_blocks.

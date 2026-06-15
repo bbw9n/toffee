@@ -14,9 +14,7 @@ pub struct ProvenanceCmd {
 pub async fn run(cmd: ProvenanceCmd, fmt: OutputFormat) -> Result<()> {
     let effective = format_for(fmt, stdout_is_tty());
     let client = Client::connect().await.context("connect to daemon")?;
-    let report = client
-        .inspect_provenance(ContextPackageId(cmd.id))
-        .await?;
+    let report = client.inspect_provenance(ContextPackageId(cmd.id)).await?;
 
     match effective {
         Effective::Human => {

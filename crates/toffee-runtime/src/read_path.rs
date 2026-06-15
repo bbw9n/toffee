@@ -21,7 +21,7 @@ use std::collections::{HashMap, HashSet};
 use chrono::Utc;
 use toffee_core::{
     context::ProvenanceEntry, expand_inherited, ContextPackage, ContextPackageId, Lens, Memory,
-    MemoryId, MemoryKind, ProvenanceReport, RetrievalSource,
+    MemoryId, MemoryKind, ProvenanceReport, RetrievalSource, ScoringConfig,
 };
 use toffee_store::{EntityListFilter, MemoryListFilter, Store};
 use toffee_vector::{Embedder, VectorIndex};
@@ -31,7 +31,6 @@ use crate::{compose_text_for_embedding, Result};
 const VECTOR_OVERSAMPLE: usize = 64;
 const RECENT_WINDOW: usize = 32;
 const ENTITY_PER_HIT_LIMIT: usize = 16;
-const RECENCY_HALF_LIFE_DAYS: f64 = 14.0;
 
 /// Inputs to a `read_context` call.
 #[derive(Debug, Clone)]
@@ -56,6 +55,7 @@ pub fn read_context(
     store: &Store,
     embedder: &dyn Embedder,
     vector: &VectorIndex,
+    scoring: &ScoringConfig,
     req: ReadContextRequest,
 ) -> Result<(ContextPackage, ProvenanceReport)> {
     let expanded_scopes = expand_inherited(&req.scope);
@@ -129,8 +129,14 @@ pub fn read_context(
         .into_values()
         .filter(|w| w.memory.confidence >= lens.min_confidence)
         .map(|w| {
-            let recency = recency_score(&w.memory, now);
-            let score = combined_score(&w, recency);
+            let age_days = (now - w.memory.updated_at).num_seconds() as f64 / 86_400.0;
+            let recency = scoring.recency_decay(age_days);
+            let score = scoring.combined(
+                w.vector_similarity.unwrap_or(0.0) as f64,
+                w.entity_match,
+                recency as f64,
+                w.memory.confidence,
+            );
             (w, score, recency)
         })
         .collect();
@@ -260,11 +266,7 @@ fn allocate_bucket(
     (taken, prov)
 }
 
-fn entity_anchored(
-    store: &Store,
-    query: &str,
-    scopes: &[String],
-) -> Result<Vec<Memory>> {
+fn entity_anchored(store: &Store, query: &str, scopes: &[String]) -> Result<Vec<Memory>> {
     let query_lower = query.to_lowercase();
     // Pull a bounded set of entities and match their names (or aliases)
     // against query tokens. The plan's "longest-match" promise is already
@@ -279,7 +281,10 @@ fn entity_anchored(
             .map(|s| s.to_lowercase())
             .collect();
         names.sort_by_key(|s| std::cmp::Reverse(s.len()));
-        if !names.iter().any(|n| !n.is_empty() && query_lower.contains(n)) {
+        if !names
+            .iter()
+            .any(|n| !n.is_empty() && query_lower.contains(n))
+        {
             continue;
         }
         let memories = store.memories_for_entity(&ent.id, Some(scopes), ENTITY_PER_HIT_LIMIT)?;
@@ -306,22 +311,6 @@ fn recent_in_scope(store: &Store, scopes: &[String], limit: usize) -> Result<Vec
 fn any_scope_match(memory_scopes: &toffee_core::Scope, allowed: &[String]) -> bool {
     let mem = memory_scopes.as_slice();
     allowed.iter().any(|s| mem.iter().any(|m| m == s))
-}
-
-fn recency_score(memory: &Memory, now: chrono::DateTime<chrono::Utc>) -> f32 {
-    let age_days = (now - memory.updated_at).num_seconds() as f64 / 86_400.0;
-    // Exponential decay: 1.0 at age 0, 0.5 at half-life, asymptote 0.
-    let val = (-age_days.max(0.0) / RECENCY_HALF_LIFE_DAYS).exp();
-    val as f32
-}
-
-fn combined_score(w: &WorkItem, recency: f32) -> f64 {
-    let v = w.vector_similarity.unwrap_or(0.0) as f64;
-    let conf_bias = w.memory.confidence;
-    let entity_anchor = if w.entity_match { 0.5 } else { 0.0 };
-    // Weights: vector dominates when present, entity anchoring is a
-    // meaningful second signal, recency / confidence are tiebreakers.
-    0.6 * v + 0.25 * entity_anchor + 0.10 * (recency as f64) + 0.05 * conf_bias
 }
 
 fn sum_tokens(memories: &[Memory]) -> usize {

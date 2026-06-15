@@ -111,8 +111,14 @@ async fn show(id: String, fmt: Effective) -> Result<()> {
             println!("conflict:   {}", conflict.id);
             println!("resolution: {}", conflict.resolution.as_str());
             println!("scope:      {}", conflict.scope.as_slice().join(", "));
-            println!("subject:    {}", conflict.subject.as_deref().unwrap_or("(none)"));
-            println!("predicate:  {}", conflict.predicate.as_deref().unwrap_or("(none)"));
+            println!(
+                "subject:    {}",
+                conflict.subject.as_deref().unwrap_or("(none)")
+            );
+            println!(
+                "predicate:  {}",
+                conflict.predicate.as_deref().unwrap_or("(none)")
+            );
             println!("created:    {}", conflict.created_at);
             if let Some(t) = conflict.resolved_at {
                 println!("resolved:   {t}");
@@ -175,11 +181,7 @@ async fn resolve(
 
     match fmt {
         Effective::Human => {
-            println!(
-                "{}  -> {}",
-                conflict.id,
-                conflict.resolution.as_str()
-            );
+            println!("{}  -> {}", conflict.id, conflict.resolution.as_str());
         }
         Effective::Json => {
             println!(

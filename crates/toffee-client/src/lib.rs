@@ -15,9 +15,6 @@ use std::time::Duration;
 
 use parking_lot::Mutex as ParkingMutex;
 use thiserror::Error;
-use tokio::io::{AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
-use tokio::sync::{broadcast, oneshot, Mutex};
 use toffee_core::{
     paths, ConflictId, ContextPackage, ContextPackageId, Entity, EntityPage, EventId, EventInput,
     FeedbackKind, Memory, MemoryConflict, MemoryId, MemoryKind, Notification, ProvenanceReport,
@@ -35,6 +32,9 @@ use toffee_rpc::{
     ResolveConflictResponse, SearchMemoryHit, SearchMemoryRequest, SearchMemoryResponse,
     ServerInfo, WhyMemoryRequest, WhyMemoryResponse, WorkerStatusRequest, WorkerStatusResponse,
 };
+use tokio::io::{AsyncWriteExt, BufReader};
+use tokio::net::UnixStream;
+use tokio::sync::{broadcast, oneshot, Mutex};
 
 pub use connect::{spawn_daemon_if_needed, ConnectOptions};
 
@@ -95,18 +95,16 @@ impl Client {
     }
 
     pub async fn connect_with(opts: ConnectOptions) -> Result<Self, ClientError> {
-        let socket = opts
-            .socket_path
-            .clone()
-            .unwrap_or_else(paths::socket_path);
+        let socket = opts.socket_path.clone().unwrap_or_else(paths::socket_path);
 
         // Fast path.
         match UnixStream::connect(&socket).await {
             Ok(s) => return Ok(Self::wrap(s, socket)),
-            Err(e) if matches!(
-                e.kind(),
-                std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
-            ) =>
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+                ) =>
             {
                 if !opts.auto_spawn {
                     return Err(e.into());
@@ -145,9 +143,10 @@ impl Client {
         let (notifications_tx, _) = broadcast::channel(256);
         let pending_for_task = pending.clone();
         let tx_for_task = notifications_tx.clone();
-        let reader_task = tokio::spawn(async move {
-            reader_loop(read_half, pending_for_task, tx_for_task).await
-        });
+        let reader_task =
+            tokio::spawn(
+                async move { reader_loop(read_half, pending_for_task, tx_for_task).await },
+            );
         Client {
             writer: Mutex::new(write_half),
             next_id: AtomicI64::new(1),
@@ -200,6 +199,9 @@ impl Client {
         .await
     }
 
+    // The parameters mirror the SPO memory shape one-to-one; a params struct
+    // would just be unpacked at the single call site.
+    #[allow(clippy::too_many_arguments)]
     pub async fn add_memory(
         &self,
         kind: MemoryKind,
@@ -229,7 +231,10 @@ impl Client {
 
     pub async fn forget_memory(&self, memory_id: MemoryId) -> Result<(), ClientError> {
         let _: serde_json::Value = self
-            .call(method_names::FORGET_MEMORY, ForgetMemoryRequest { memory_id })
+            .call(
+                method_names::FORGET_MEMORY,
+                ForgetMemoryRequest { memory_id },
+            )
             .await?;
         Ok(())
     }
@@ -342,7 +347,10 @@ impl Client {
         conflict_id: ConflictId,
     ) -> Result<MemoryConflict, ClientError> {
         let resp: GetConflictResponse = self
-            .call(method_names::GET_CONFLICT, GetConflictRequest { conflict_id })
+            .call(
+                method_names::GET_CONFLICT,
+                GetConflictRequest { conflict_id },
+            )
             .await?;
         Ok(resp.conflict)
     }
@@ -355,7 +363,10 @@ impl Client {
         let resp: ResolveConflictResponse = self
             .call(
                 method_names::RESOLVE_CONFLICT,
-                ResolveConflictRequest { conflict_id, action },
+                ResolveConflictRequest {
+                    conflict_id,
+                    action,
+                },
             )
             .await?;
         Ok(resp.conflict)
@@ -368,10 +379,7 @@ impl Client {
         Ok(resp.status)
     }
 
-    pub async fn why_memory(
-        &self,
-        memory_id: MemoryId,
-    ) -> Result<WhyMemoryReport, ClientError> {
+    pub async fn why_memory(&self, memory_id: MemoryId) -> Result<WhyMemoryReport, ClientError> {
         let resp: WhyMemoryResponse = self
             .call(method_names::WHY_MEMORY, WhyMemoryRequest { memory_id })
             .await?;
@@ -380,7 +388,10 @@ impl Client {
 
     pub async fn rebuild_indexes(&self) -> Result<usize, ClientError> {
         let resp: RebuildIndexesResponse = self
-            .call(method_names::DAEMON_REBUILD_INDEXES, serde_json::Value::Null)
+            .call(
+                method_names::DAEMON_REBUILD_INDEXES,
+                serde_json::Value::Null,
+            )
             .await?;
         Ok(resp.reindexed)
     }

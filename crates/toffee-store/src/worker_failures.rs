@@ -45,17 +45,14 @@ impl Store {
 
     pub fn worker_failure_count(&self) -> Result<i64> {
         self.with_conn(|conn| {
-            let n: i64 = conn
-                .query_row("SELECT COUNT(*) FROM worker_failures", [], |r| r.get(0))?;
+            let n: i64 =
+                conn.query_row("SELECT COUNT(*) FROM worker_failures", [], |r| r.get(0))?;
             Ok(n)
         })
     }
 
     /// Count of events strictly after the given checkpoint.
-    pub fn count_events_after(
-        &self,
-        after: Option<&(DateTime<Utc>, EventId)>,
-    ) -> Result<i64> {
+    pub fn count_events_after(&self, after: Option<&(DateTime<Utc>, EventId)>) -> Result<i64> {
         self.with_conn(|conn| {
             let n: i64 = match after {
                 Some((ts, id)) => conn.query_row(
@@ -75,8 +72,8 @@ impl Store {
     /// are no events yet.
     pub fn latest_event_at(&self) -> Result<Option<DateTime<Utc>>> {
         self.with_conn(|conn| {
-            let row: Option<String> = conn
-                .query_row("SELECT MAX(created_at) FROM events", [], |r| {
+            let row: Option<String> =
+                conn.query_row("SELECT MAX(created_at) FROM events", [], |r| {
                     r.get::<_, Option<String>>(0)
                 })?;
             match row {

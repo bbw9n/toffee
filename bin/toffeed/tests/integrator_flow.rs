@@ -91,8 +91,12 @@ async fn integrator_round_trip_read_context_after_append_event() {
     // Sanity: hello.
     let info = client.hello("integration-test", "1.0").await.unwrap();
     assert_eq!(info.server_name, "toffeed");
-    assert!(info.supported_methods.contains(&"toffee.read_context".into()));
-    assert!(info.supported_methods.contains(&"toffee.append_event".into()));
+    assert!(info
+        .supported_methods
+        .contains(&"toffee.read_context".into()));
+    assert!(info
+        .supported_methods
+        .contains(&"toffee.append_event".into()));
 
     // Seed three turns.
     for text in [

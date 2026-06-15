@@ -244,7 +244,10 @@ async fn search_respects_scope_filter() {
     assert!(!hits.is_empty());
     for h in &hits {
         assert!(
-            h.memory.scope.as_slice().contains(&"project:foo".to_string()),
+            h.memory
+                .scope
+                .as_slice()
+                .contains(&"project:foo".to_string()),
             "leaked scope: {:?}",
             h.memory.scope
         );

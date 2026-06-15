@@ -56,6 +56,19 @@ cargo bench --bench runtime -p toffee-runtime
 cargo bench --bench runtime -p toffee-runtime -- --measurement-time 2 --warm-up-time 1
 ```
 
+### Pre-commit formatting hook
+
+CI gates on `cargo fmt --all -- --check`. A repo-tracked pre-commit hook runs the
+same check locally so drift never reaches CI. Enable it once per clone (the
+`core.hooksPath` setting is local, not committed):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+It blocks a commit with unformatted code and tells you to run `cargo fmt --all`;
+bypass a single commit with `git commit --no-verify`.
+
 There are 100+ tests across the workspace. The big buckets:
 
 | Suite | Lives in | What it covers |
@@ -90,6 +103,45 @@ From RFC §6, currently met by 2–3 orders of magnitude:
 CLI / IPC adds ~5–10 ms on top.
 
 Reproduce with `cargo bench --bench runtime -p toffee-runtime`. If a regression > 20% appears, that's a real issue.
+
+---
+
+## Evaluating memory quality
+
+Latency tells you the daemon is fast; it says nothing about whether the
+memories are any *good*. That's what `crates/toffee-eval` measures, and it's
+the gate you run before swapping the heuristic extractor for anything smarter.
+
+```bash
+cargo run -p toffee-eval                 # scorecard (non-zero exit on a missed gate)
+cargo run -p toffee-eval -- run --verbose   # every failing / spurious case
+cargo run -p toffee-eval -- tune            # fit the read-path weights to the corpus
+cargo run -p toffee-eval -- debug retrieve <case>   # per-signal score breakdown
+```
+
+It scores two surfaces separately, because they fail separately:
+
+- **Extraction** (`event → memory`) — runs the pure `extract` function over a
+  labeled corpus. precision / recall / **F0.5** (precision-weighted, per the
+  extractor's own asymmetry note) plus per-field accuracy.
+- **Retrieval** (`query → context`) — seeds a fresh in-process runtime with a
+  known memory set, then scores `search_memory` (MRR / Recall@k / nDCG@k) and
+  `read_context` (package recall, bucket accuracy).
+
+Both run offline against the hash embedder, deterministically (memories are
+seeded with staggered timestamps so the read path's score tie-break is total —
+otherwise `tune` would chase HashMap-order noise). The corpus is two JSONL
+files under `crates/toffee-eval/corpus/`; append to grow them. The
+`harness_smoke` test runs the shipped corpus through the default gate, so
+`cargo test --workspace` fails on a memory-quality regression.
+
+**`tune` and the scoring config.** The read-path ranking weights in
+`combined_score` are no longer hardcoded — they live in `toffee_core::ScoringConfig`,
+loaded by `toffeed` from `config.toml` and **hot-reloaded** while it runs (mtime
+poll). `tune` coordinate-descents those weights against the retrieval corpus and
+`--write` persists them, so `tune --write` retunes a live daemon with no
+restart. See [`crates/toffee-eval/README.md`](crates/toffee-eval/README.md) for
+the corpus format, subcommands, and config schema.
 
 ---
 

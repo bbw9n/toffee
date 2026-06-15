@@ -8,11 +8,9 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use clap::Parser;
-use tokio::net::UnixListener;
-use tokio::sync::broadcast;
 use toffee_core::{
-    paths, EventInput, ExtractionProvenance, FeedbackKind, Lens, MemoryCandidate, MemoryId,
-    MemoryKind, Scope,
+    paths, Config, EventInput, ExtractionProvenance, FeedbackKind, Lens, MemoryCandidate, MemoryId,
+    MemoryKind, Scope, ScoringConfig,
 };
 use toffee_rpc::methods::{
     method_names, AddMemoryRequest, AddMemoryResponse, AppendEventRequest, AppendEventResponse,
@@ -22,14 +20,16 @@ use toffee_rpc::methods::{
     ListConflictsResponse, ListEntitiesRequest, ListEntitiesResponse, ListMemoriesRequest,
     ListMemoriesResponse, ReadContextRequest, ReadContextResponse, RebuildIndexesResponse,
     RecordFeedbackRequest, RecordFeedbackResponse, ResolveConflictAction, ResolveConflictRequest,
-    ResolveConflictResponse, SearchMemoryHit, SearchMemoryRequest, SearchMemoryResponse, ServerInfo,
-    WhyMemoryRequest, WhyMemoryResponse, WorkerStatusRequest, WorkerStatusResponse,
+    ResolveConflictResponse, SearchMemoryHit, SearchMemoryRequest, SearchMemoryResponse,
+    ServerInfo, WhyMemoryRequest, WhyMemoryResponse, WorkerStatusRequest, WorkerStatusResponse,
 };
 use toffee_rpc::server::{serve, Handler, RpcError};
 use toffee_runtime::read_path::ReadContextRequest as RuntimeReadContext;
 use toffee_runtime::{ResolutionAction, Runtime, SearchParams};
 use toffee_store::{EntityListFilter, MemoryListFilter, Store};
 use toffee_vector::{BgeEmbedder, Embedder, HashEmbedder, VectorIndex};
+use tokio::net::UnixListener;
+use tokio::sync::broadcast;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -71,6 +71,11 @@ struct Args {
     /// `$XDG_DATA_HOME/toffee/models/`.
     #[arg(long, env = "TOFFEE_MODELS_DIR")]
     models_dir: Option<PathBuf>,
+
+    /// Override the config file path. Defaults to
+    /// `$XDG_CONFIG_HOME/toffee/config.toml`. Hot-reloaded while running.
+    #[arg(long, env = "TOFFEE_CONFIG")]
+    config: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -91,8 +96,8 @@ async fn run(args: Args) -> Result<()> {
         .with_context(|| format!("create runtime dir {:?}", runtime_dir))?;
 
     let pid_path = paths::pid_path();
-    let _pid_lock = acquire_pid_lock(&pid_path)
-        .context("another toffeed instance appears to be running")?;
+    let _pid_lock =
+        acquire_pid_lock(&pid_path).context("another toffeed instance appears to be running")?;
 
     let socket_path = args.socket.unwrap_or_else(paths::socket_path);
     // Stale socket from a previous crash — remove before binding.
@@ -105,13 +110,12 @@ async fn run(args: Args) -> Result<()> {
     tracing::info!(?socket_path, "listening");
 
     let db_path = args.db.unwrap_or_else(paths::db_path);
-    let store = Arc::new(
-        Store::open(&db_path).with_context(|| format!("open store {:?}", db_path))?,
-    );
+    let store =
+        Arc::new(Store::open(&db_path).with_context(|| format!("open store {:?}", db_path))?);
     tracing::info!(?db_path, "store ready");
 
-    let embedder: Arc<dyn Embedder> = build_embedder(args.embedder, args.models_dir)
-        .context("build embedder")?;
+    let embedder: Arc<dyn Embedder> =
+        build_embedder(args.embedder, args.models_dir).context("build embedder")?;
     tracing::info!(
         model = embedder.model(),
         dim = embedder.dim(),
@@ -128,6 +132,19 @@ async fn run(args: Args) -> Result<()> {
         .load_index_from_store()
         .context("rehydrate vector index from store")?;
     tracing::info!(n_indexed, "vector index rehydrated");
+
+    // Load the read-path scoring config and start watching it for live edits
+    // (e.g. from `toffee-eval tune --write`).
+    let config_path = args.config.unwrap_or_else(paths::config_file);
+    if let Some(scoring) = load_scoring_config(&config_path) {
+        runtime.set_scoring_config(scoring);
+        tracing::info!(?config_path, ?scoring, "scoring config loaded");
+    } else {
+        tracing::info!(
+            ?config_path,
+            "no config file; using default scoring weights"
+        );
+    }
 
     let (shutdown_tx, _) = broadcast::channel::<()>(8);
     let handler = Arc::new(DaemonHandler {
@@ -148,6 +165,18 @@ async fn run(args: Args) -> Result<()> {
         })
     };
 
+    // Spawn the config watcher: poll the file's mtime and hot-swap the
+    // runtime's scoring weights when it changes. Polling (vs inotify) keeps
+    // the dependency footprint flat and is plenty prompt for a human- or
+    // tuner-edited config.
+    let config_handle = {
+        let runtime = runtime.clone();
+        let shutdown_rx = shutdown_tx.subscribe();
+        tokio::spawn(async move {
+            watch_config(runtime, config_path, shutdown_rx).await;
+        })
+    };
+
     // Spawn the server task.
     let server_handle = {
         let handler = handler.clone();
@@ -165,9 +194,55 @@ async fn run(args: Args) -> Result<()> {
     // Drop the worker + server tasks and clean up.
     let _ = server_handle.await;
     let _ = worker_handle.await;
+    let _ = config_handle.await;
     std::fs::remove_file(&socket_path).ok();
     // pid file is unlinked when the lock guard drops.
     Ok(())
+}
+
+/// Read and parse the scoring config from `path`. Returns `None` if the file
+/// is absent; logs and returns `None` on a read/parse error so a malformed
+/// edit never takes the daemon down — it just keeps the previous weights.
+fn load_scoring_config(path: &std::path::Path) -> Option<ScoringConfig> {
+    let body = match std::fs::read_to_string(path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            tracing::warn!(?path, error = ?e, "could not read config; keeping current weights");
+            return None;
+        }
+    };
+    match toml::from_str::<Config>(&body) {
+        Ok(cfg) => Some(cfg.scoring),
+        Err(e) => {
+            tracing::warn!(?path, error = %e, "malformed config; keeping current weights");
+            None
+        }
+    }
+}
+
+/// Poll `path`'s mtime every 2s and hot-swap the runtime's scoring weights when
+/// it changes. Exits on shutdown.
+async fn watch_config(runtime: Runtime, path: PathBuf, mut shutdown_rx: broadcast::Receiver<()>) {
+    let mtime = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+    let mut last = mtime(&path);
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(2));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            _ = shutdown_rx.recv() => return,
+            _ = tick.tick() => {
+                let now = mtime(&path);
+                if now != last {
+                    last = now;
+                    if let Some(scoring) = load_scoring_config(&path) {
+                        runtime.set_scoring_config(scoring);
+                        tracing::info!(?path, ?scoring, "scoring config hot-reloaded");
+                    }
+                }
+            }
+        }
+    }
 }
 
 async fn wait_for_shutdown_signal(shutdown_tx: broadcast::Sender<()>) {
@@ -222,10 +297,7 @@ impl Handler for DaemonHandler {
         })
     }
 
-    async fn append_event(
-        &self,
-        req: AppendEventRequest,
-    ) -> Result<AppendEventResponse, RpcError> {
+    async fn append_event(&self, req: AppendEventRequest) -> Result<AppendEventResponse, RpcError> {
         let input: EventInput = req;
         let runtime = self.runtime.clone();
         let event = tokio::task::spawn_blocking(move || runtime.append_event(input))
@@ -254,10 +326,7 @@ impl Handler for DaemonHandler {
         })
     }
 
-    async fn add_memory(
-        &self,
-        req: AddMemoryRequest,
-    ) -> Result<AddMemoryResponse, RpcError> {
+    async fn add_memory(&self, req: AddMemoryRequest) -> Result<AddMemoryResponse, RpcError> {
         let AddMemoryRequest {
             kind,
             scope,
@@ -286,12 +355,11 @@ impl Handler for DaemonHandler {
         let memory = candidate_to_memory(candidate, conf);
 
         let runtime = self.runtime.clone();
-        let memory = tokio::task::spawn_blocking(move || {
-            runtime.insert_memory_and_link_entities(memory)
-        })
-        .await
-        .map_err(|e| RpcError::Internal(e.to_string()))?
-        .map_err(map_runtime_err)?;
+        let memory =
+            tokio::task::spawn_blocking(move || runtime.insert_memory_and_link_entities(memory))
+                .await
+                .map_err(|e| RpcError::Internal(e.to_string()))?
+                .map_err(map_runtime_err)?;
 
         Ok(AddMemoryResponse { memory })
     }
@@ -341,7 +409,8 @@ impl Handler for DaemonHandler {
             .await
             .map_err(|e| RpcError::Internal(e.to_string()))?
             .map_err(|e| RpcError::Internal(e.to_string()))?;
-        let memory = memory.ok_or_else(|| RpcError::NotFound(format!("memory {}", req.memory_id)))?;
+        let memory =
+            memory.ok_or_else(|| RpcError::NotFound(format!("memory {}", req.memory_id)))?;
         Ok(GetMemoryResponse { memory })
     }
 
@@ -403,10 +472,7 @@ impl Handler for DaemonHandler {
         })
     }
 
-    async fn read_context(
-        &self,
-        req: ReadContextRequest,
-    ) -> Result<ReadContextResponse, RpcError> {
+    async fn read_context(&self, req: ReadContextRequest) -> Result<ReadContextResponse, RpcError> {
         let lens = req
             .custom_lens
             .clone()
@@ -461,10 +527,7 @@ impl Handler for DaemonHandler {
         Ok(ListConflictsResponse { conflicts })
     }
 
-    async fn get_conflict(
-        &self,
-        req: GetConflictRequest,
-    ) -> Result<GetConflictResponse, RpcError> {
+    async fn get_conflict(&self, req: GetConflictRequest) -> Result<GetConflictResponse, RpcError> {
         let runtime = self.runtime.clone();
         let id = req.conflict_id.clone();
         let conflict = tokio::task::spawn_blocking(move || runtime.get_conflict(&id))
@@ -499,11 +562,10 @@ impl Handler for DaemonHandler {
         };
         let runtime = self.runtime.clone();
         let id = req.conflict_id;
-        let conflict =
-            tokio::task::spawn_blocking(move || runtime.resolve_conflict(&id, action))
-                .await
-                .map_err(|e| RpcError::Internal(e.to_string()))?
-                .map_err(map_runtime_err)?;
+        let conflict = tokio::task::spawn_blocking(move || runtime.resolve_conflict(&id, action))
+            .await
+            .map_err(|e| RpcError::Internal(e.to_string()))?
+            .map_err(map_runtime_err)?;
         Ok(ResolveConflictResponse { conflict })
     }
 
@@ -528,10 +590,7 @@ impl Handler for DaemonHandler {
         Ok(WorkerStatusResponse { status })
     }
 
-    async fn why_memory(
-        &self,
-        req: WhyMemoryRequest,
-    ) -> Result<WhyMemoryResponse, RpcError> {
+    async fn why_memory(&self, req: WhyMemoryRequest) -> Result<WhyMemoryResponse, RpcError> {
         let runtime = self.runtime.clone();
         let id = req.memory_id;
         let report = tokio::task::spawn_blocking(move || runtime.why_memory(&id))
@@ -700,7 +759,10 @@ fn init_tracing(foreground: bool) -> Result<()> {
             .append(true)
             .open(&log_path)
             .with_context(|| format!("open log file {:?}", log_path))?;
-        builder.with_writer(move || file.try_clone().unwrap()).try_init().ok();
+        builder
+            .with_writer(move || file.try_clone().unwrap())
+            .try_init()
+            .ok();
     }
     Ok(())
 }

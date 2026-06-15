@@ -107,7 +107,9 @@ impl Store {
                 rows.into_iter()
                     .filter(|m| {
                         let memory_scopes = m.scope.as_slice();
-                        scopes.iter().any(|s| memory_scopes.iter().any(|ms| ms == s))
+                        scopes
+                            .iter()
+                            .any(|s| memory_scopes.iter().any(|ms| ms == s))
                     })
                     .collect()
             } else {
@@ -244,8 +246,8 @@ fn row_to_memory(row: &rusqlite::Row<'_>) -> rusqlite::Result<Memory> {
     let scope: Scope = serde_json::from_str(&scope_json).map_err(|e| {
         rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e))
     })?;
-    let source_event_ids_raw: Vec<String> = serde_json::from_str(&source_event_ids_json)
-        .map_err(|e| {
+    let source_event_ids_raw: Vec<String> =
+        serde_json::from_str(&source_event_ids_json).map_err(|e| {
             rusqlite::Error::FromSqlConversionFailure(8, rusqlite::types::Type::Text, Box::new(e))
         })?;
     let source_event_ids: Vec<EventId> = source_event_ids_raw.into_iter().map(EventId).collect();
@@ -283,7 +285,12 @@ mod tests {
     use chrono::Utc;
     use toffee_core::{MemoryId, MemoryKind, Scope};
 
-    fn sample(kind: MemoryKind, subject: Option<&str>, predicate: Option<&str>, object: Option<&str>) -> Memory {
+    fn sample(
+        kind: MemoryKind,
+        subject: Option<&str>,
+        predicate: Option<&str>,
+        object: Option<&str>,
+    ) -> Memory {
         let now = Utc::now();
         Memory {
             id: MemoryId::generate(),
@@ -305,7 +312,12 @@ mod tests {
     #[test]
     fn insert_and_get() {
         let store = Store::open_in_memory().unwrap();
-        let mem = sample(MemoryKind::Claim, Some("parser"), Some("uses"), Some("pest"));
+        let mem = sample(
+            MemoryKind::Claim,
+            Some("parser"),
+            Some("uses"),
+            Some("pest"),
+        );
         store.insert_memory(&mem).unwrap();
         let back = store.get_memory(&mem.id).unwrap().unwrap();
         assert_eq!(back.kind, MemoryKind::Claim);
@@ -319,7 +331,12 @@ mod tests {
             .insert_memory(&sample(MemoryKind::Claim, Some("a"), Some("b"), Some("c")))
             .unwrap();
         store
-            .insert_memory(&sample(MemoryKind::Decision, Some("a"), Some("b"), Some("c")))
+            .insert_memory(&sample(
+                MemoryKind::Decision,
+                Some("a"),
+                Some("b"),
+                Some("c"),
+            ))
             .unwrap();
         let claims = store
             .list_memories(&MemoryListFilter {
@@ -350,7 +367,9 @@ mod tests {
         let mem = sample(MemoryKind::Claim, Some("a"), Some("b"), Some("c"));
         let id = mem.id.clone();
         store.insert_memory(&mem).unwrap();
-        store.update_memory_confidence(&id, 0.42, Utc::now()).unwrap();
+        store
+            .update_memory_confidence(&id, 0.42, Utc::now())
+            .unwrap();
         let back = store.get_memory(&id).unwrap().unwrap();
         assert!((back.confidence - 0.42).abs() < 1e-9);
 
@@ -358,9 +377,7 @@ mod tests {
         store.soft_delete_memory(&id, Utc::now()).unwrap();
         assert_eq!(store.memory_count_active().unwrap(), 0);
         // Default list excludes deleted.
-        let listed = store
-            .list_memories(&MemoryListFilter::default())
-            .unwrap();
+        let listed = store.list_memories(&MemoryListFilter::default()).unwrap();
         assert!(listed.is_empty());
     }
 
@@ -368,22 +385,19 @@ mod tests {
     fn find_by_subject_predicate_respects_scope() {
         let store = Store::open_in_memory().unwrap();
         store
-            .insert_memory(&sample(MemoryKind::Claim, Some("parser"), Some("uses"), Some("pest")))
+            .insert_memory(&sample(
+                MemoryKind::Claim,
+                Some("parser"),
+                Some("uses"),
+                Some("pest"),
+            ))
             .unwrap();
         let hits = store
-            .find_active_by_subject_predicate(
-                &["project:test".to_string()],
-                "parser",
-                "uses",
-            )
+            .find_active_by_subject_predicate(&["project:test".to_string()], "parser", "uses")
             .unwrap();
         assert_eq!(hits.len(), 1);
         let miss = store
-            .find_active_by_subject_predicate(
-                &["project:other".to_string()],
-                "parser",
-                "uses",
-            )
+            .find_active_by_subject_predicate(&["project:other".to_string()], "parser", "uses")
             .unwrap();
         assert!(miss.is_empty());
     }

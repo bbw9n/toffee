@@ -114,7 +114,9 @@ mod tests {
         let c = Config::from_toml(toml).unwrap();
         assert_eq!(c.sources.len(), 3);
         match &c.sources[0] {
-            SourceConfig::ClaudeCode(f) => assert_eq!(f.scope.as_deref(), Some(&["project:foo".to_string()][..])),
+            SourceConfig::ClaudeCode(f) => {
+                assert_eq!(f.scope.as_deref(), Some(&["project:foo".to_string()][..]))
+            }
             _ => panic!(),
         }
     }

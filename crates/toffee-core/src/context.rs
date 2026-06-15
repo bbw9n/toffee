@@ -56,7 +56,7 @@ impl ContextPackage {
     /// "4 chars per token" rule; close enough for budget control without
     /// pulling in a real tokenizer.
     pub fn estimate_tokens_for(text: &str) -> usize {
-        (text.chars().count() + 3) / 4
+        text.chars().count().div_ceil(4)
     }
 
     /// Render to a markdown block agents can prepend to their prompts. Order
@@ -132,7 +132,8 @@ impl Lens {
     /// Token budget for one kind given a total and the renormalised weight.
     pub fn budget_for(&self, kind: MemoryKind, total: usize) -> usize {
         let w = self.weight_for(kind);
-        let sum = self.claim_weight + self.decision_weight + self.preference_weight + self.episode_weight;
+        let sum =
+            self.claim_weight + self.decision_weight + self.preference_weight + self.episode_weight;
         if sum <= 0.0 {
             return 0;
         }

@@ -8,6 +8,7 @@ members = [
     "crates/toffee-rpc",
     "crates/toffee-client",
     "crates/toffee-tap",
+    "crates/toffee-eval",
     "bin/toffeed",
     "bin/toffee",
     "bin/toffee-mcp",

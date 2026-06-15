@@ -47,10 +47,7 @@ impl RpcError {
 #[async_trait]
 pub trait Handler: Send + Sync + 'static {
     async fn hello(&self, req: HelloRequest) -> Result<HelloResponse, RpcError>;
-    async fn append_event(
-        &self,
-        req: AppendEventRequest,
-    ) -> Result<AppendEventResponse, RpcError>;
+    async fn append_event(&self, req: AppendEventRequest) -> Result<AppendEventResponse, RpcError>;
     async fn record_feedback(
         &self,
         req: RecordFeedbackRequest,
@@ -74,10 +71,7 @@ pub trait Handler: Send + Sync + 'static {
         &self,
         req: SearchMemoryRequest,
     ) -> Result<SearchMemoryResponse, RpcError>;
-    async fn read_context(
-        &self,
-        req: ReadContextRequest,
-    ) -> Result<ReadContextResponse, RpcError>;
+    async fn read_context(&self, req: ReadContextRequest) -> Result<ReadContextResponse, RpcError>;
     async fn inspect_provenance(
         &self,
         req: InspectProvenanceRequest,
@@ -86,10 +80,7 @@ pub trait Handler: Send + Sync + 'static {
         &self,
         req: ListConflictsRequest,
     ) -> Result<ListConflictsResponse, RpcError>;
-    async fn get_conflict(
-        &self,
-        req: GetConflictRequest,
-    ) -> Result<GetConflictResponse, RpcError>;
+    async fn get_conflict(&self, req: GetConflictRequest) -> Result<GetConflictResponse, RpcError>;
     async fn resolve_conflict(
         &self,
         req: ResolveConflictRequest,
@@ -98,10 +89,7 @@ pub trait Handler: Send + Sync + 'static {
         &self,
         req: WorkerStatusRequest,
     ) -> Result<WorkerStatusResponse, RpcError>;
-    async fn why_memory(
-        &self,
-        req: WhyMemoryRequest,
-    ) -> Result<WhyMemoryResponse, RpcError>;
+    async fn why_memory(&self, req: WhyMemoryRequest) -> Result<WhyMemoryResponse, RpcError>;
     /// Subscribe to the broadcast notification channel. Returning `None`
     /// disables server-side notification fan-out for this handler.
     fn notification_subscriber(&self) -> Option<broadcast::Receiver<Notification>> {
@@ -268,52 +256,36 @@ async fn dispatch<H: Handler>(handler: &H, req: JsonRpcRequest) -> Option<JsonRp
         method_names::FORGET_MEMORY => {
             call_handler_unit(req.params, |r| handler.forget_memory(r)).await
         }
-        method_names::LIST_MEMORIES => {
-            call_handler(req.params, |r| handler.list_memories(r)).await
-        }
+        method_names::LIST_MEMORIES => call_handler(req.params, |r| handler.list_memories(r)).await,
         method_names::GET_MEMORY => call_handler(req.params, |r| handler.get_memory(r)).await,
-        method_names::LIST_ENTITIES => {
-            call_handler(req.params, |r| handler.list_entities(r)).await
-        }
+        method_names::LIST_ENTITIES => call_handler(req.params, |r| handler.list_entities(r)).await,
         method_names::GET_ENTITY_PAGE => {
             call_handler(req.params, |r| handler.get_entity_page(r)).await
         }
-        method_names::SEARCH_MEMORY => {
-            call_handler(req.params, |r| handler.search_memory(r)).await
-        }
-        method_names::READ_CONTEXT => {
-            call_handler(req.params, |r| handler.read_context(r)).await
-        }
+        method_names::SEARCH_MEMORY => call_handler(req.params, |r| handler.search_memory(r)).await,
+        method_names::READ_CONTEXT => call_handler(req.params, |r| handler.read_context(r)).await,
         method_names::INSPECT_PROVENANCE => {
             call_handler(req.params, |r| handler.inspect_provenance(r)).await
         }
         method_names::LIST_CONFLICTS => {
             call_handler(req.params, |r| handler.list_conflicts(r)).await
         }
-        method_names::GET_CONFLICT => {
-            call_handler(req.params, |r| handler.get_conflict(r)).await
-        }
+        method_names::GET_CONFLICT => call_handler(req.params, |r| handler.get_conflict(r)).await,
         method_names::RESOLVE_CONFLICT => {
             call_handler(req.params, |r| handler.resolve_conflict(r)).await
         }
-        method_names::WORKER_STATUS => {
-            call_handler(req.params, |r| handler.worker_status(r)).await
-        }
-        method_names::WHY_MEMORY => {
-            call_handler(req.params, |r| handler.why_memory(r)).await
-        }
+        method_names::WORKER_STATUS => call_handler(req.params, |r| handler.worker_status(r)).await,
+        method_names::WHY_MEMORY => call_handler(req.params, |r| handler.why_memory(r)).await,
         method_names::DAEMON_REBUILD_INDEXES => handler
             .daemon_rebuild_indexes()
             .await
             .map(|r| serde_json::to_value(&r).unwrap_or(serde_json::Value::Null))
             .map_err(|e| e.to_jsonrpc()),
-        method_names::DAEMON_SHUTDOWN => {
-            handler
-                .daemon_shutdown()
-                .await
-                .map(|()| serde_json::Value::Null)
-                .map_err(|e| e.to_jsonrpc())
-        }
+        method_names::DAEMON_SHUTDOWN => handler
+            .daemon_shutdown()
+            .await
+            .map(|()| serde_json::Value::Null)
+            .map_err(|e| e.to_jsonrpc()),
         other => Err(JsonRpcError::method_not_found(other)),
     };
 
@@ -337,8 +309,8 @@ where
     F: FnOnce(P) -> Fut,
     Fut: std::future::Future<Output = Result<R, RpcError>>,
 {
-    let parsed: P = serde_json::from_value(params)
-        .map_err(|e| JsonRpcError::invalid_params(e.to_string()))?;
+    let parsed: P =
+        serde_json::from_value(params).map_err(|e| JsonRpcError::invalid_params(e.to_string()))?;
     let value = f(parsed).await.map_err(|e| e.to_jsonrpc())?;
     serde_json::to_value(&value).map_err(|e| JsonRpcError::internal(e.to_string()))
 }
@@ -352,8 +324,8 @@ where
     F: FnOnce(P) -> Fut,
     Fut: std::future::Future<Output = Result<(), RpcError>>,
 {
-    let parsed: P = serde_json::from_value(params)
-        .map_err(|e| JsonRpcError::invalid_params(e.to_string()))?;
+    let parsed: P =
+        serde_json::from_value(params).map_err(|e| JsonRpcError::invalid_params(e.to_string()))?;
     f(parsed).await.map_err(|e| e.to_jsonrpc())?;
     Ok(serde_json::Value::Null)
 }

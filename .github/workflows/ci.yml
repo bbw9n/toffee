@@ -34,20 +34,40 @@ jobs:
       - name: cargo test
         run: cargo test --workspace --all-targets --locked
 
-  lint:
-    name: fmt + clippy (informational)
+      # Memory-quality regression gate. The harness_smoke test already fails
+      # the build if the corpus drops below threshold; this step also surfaces
+      # the scorecard in the log for at-a-glance trend watching.
+      - name: memory-quality eval
+        run: cargo run -p toffee-eval --locked
+
+  fmt:
+    name: rustfmt
     runs-on: ubuntu-latest
-    # The repo has pre-existing fmt + clippy drift. Keep this job
-    # non-blocking until the cleanup lands; promote to a required check
-    # afterwards by removing `continue-on-error`.
-    continue-on-error: true
+    # Blocking: the fmt drift was cleared, and a pre-commit hook keeps it
+    # clean locally. Mirror the hook's check here so it can't drift back in.
     steps:
       - uses: actions/checkout@v4
 
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: rustfmt
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    # Blocking: the workspace is clippy-clean. Keep it that way — fix the lint
+    # or add a scoped `#[allow]` with a reason rather than reintroducing drift.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: Cache cargo registry, index, and target
         uses: Swatinem/rust-cache@v2
@@ -56,8 +76,5 @@ jobs:
           # doesn't pollute the test build cache and vice versa.
           shared-key: lint
 
-      - name: cargo fmt --check
-        run: cargo fmt --all -- --check
-
       - name: cargo clippy
-        run: cargo clippy --workspace --all-targets --locked
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings

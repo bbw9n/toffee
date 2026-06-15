@@ -60,7 +60,12 @@ async fn pick_supersedes_losers_and_drops_from_search() {
     let loser = conflict.competing_memory_ids[1].clone();
 
     let resolved = runtime
-        .resolve_conflict(&conflict.id, ResolutionAction::Pick { winner: winner.clone() })
+        .resolve_conflict(
+            &conflict.id,
+            ResolutionAction::Pick {
+                winner: winner.clone(),
+            },
+        )
         .unwrap();
     assert_eq!(resolved.resolution, ConflictResolution::Picked);
 
@@ -120,7 +125,10 @@ async fn merge_creates_new_memory_and_supersedes_all() {
         let sb = m.superseded_by.expect("loser should be superseded");
         match &merged_target {
             None => merged_target = Some(sb),
-            Some(prev) => assert_eq!(prev, &sb, "all losers should point at the same merged memory"),
+            Some(prev) => assert_eq!(
+                prev, &sb,
+                "all losers should point at the same merged memory"
+            ),
         }
     }
     let merged_id = merged_target.unwrap();
@@ -152,7 +160,10 @@ async fn reject_all_soft_deletes_everything() {
         .store()
         .list_memories(&toffee_store::MemoryListFilter::default())
         .unwrap();
-    assert!(listed.is_empty(), "expected no active memories after reject-all");
+    assert!(
+        listed.is_empty(),
+        "expected no active memories after reject-all"
+    );
 }
 
 #[tokio::test]

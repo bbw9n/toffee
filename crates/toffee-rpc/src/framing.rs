@@ -41,8 +41,8 @@ where
     W: tokio::io::AsyncWrite + Unpin,
     T: serde::Serialize,
 {
-    let mut s = serde_json::to_string(value)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let mut s =
+        serde_json::to_string(value).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     s.push('\n');
     writer.write_all(s.as_bytes()).await?;
     writer.flush().await

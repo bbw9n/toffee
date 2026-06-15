@@ -96,7 +96,11 @@ async fn why_memory_returns_source_events_and_linked_entities() {
         !report.linked_entities.is_empty(),
         "should have linked the auto-created entities"
     );
-    let names: Vec<_> = report.linked_entities.iter().map(|e| e.name.as_str()).collect();
+    let names: Vec<_> = report
+        .linked_entities
+        .iter()
+        .map(|e| e.name.as_str())
+        .collect();
     assert!(names.contains(&"Pest") || names.contains(&"parser"));
 }
 

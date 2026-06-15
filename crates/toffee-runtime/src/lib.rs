@@ -20,17 +20,17 @@ pub mod worker;
 use std::sync::Arc;
 
 use chrono::Utc;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::{broadcast, Notify};
 use toffee_core::{
     ConflictId, ConflictResolution, ContextPackage, ContextPackageId, Event, EventInput,
     FeedbackKind, Memory, MemoryConflict, MemoryId, MemoryKind, Notification, ProvenanceReport,
-    Scope, WhyMemoryReport, WorkerStatus,
+    Scope, ScoringConfig, WhyMemoryReport, WorkerStatus,
 };
 use toffee_store::{Store, StoreError};
 use toffee_vector::{Embedder, HashEmbedder, VectorError, VectorIndex};
+use tokio::sync::{broadcast, Notify};
 
 use crate::read_path::{ProvenanceCache, ReadContextRequest};
 
@@ -101,6 +101,9 @@ pub(crate) struct Inner {
     vector: Arc<VectorIndex>,
     embedder: Arc<dyn Embedder>,
     notify: Notify,
+    /// Read-path ranking weights. Swapped live by the daemon's config watcher;
+    /// every `read_context` snapshots it under the lock.
+    scoring: RwLock<ScoringConfig>,
     provenance_cache: Mutex<ProvenanceCache>,
     /// Broadcast channel for daemon → client notifications. Bounded; if
     /// no subscribers, sends silently drop.
@@ -135,6 +138,7 @@ impl Runtime {
                 vector,
                 embedder,
                 notify: Notify::new(),
+                scoring: RwLock::new(ScoringConfig::default()),
                 provenance_cache: Mutex::new(ProvenanceCache::new(PROVENANCE_CACHE_CAPACITY)),
                 notifications,
                 was_lagging: parking_lot::Mutex::new(false),
@@ -346,14 +350,27 @@ impl Runtime {
     /// This is the integrator entry point — `cargo add toffee-client` and
     /// call this before LLM completion.
     pub fn read_context(&self, req: ReadContextRequest) -> Result<ContextPackage> {
+        let scoring = *self.inner.scoring.read();
         let (package, report) = read_path::read_context(
             self.inner.store.as_ref(),
             self.inner.embedder.as_ref(),
             self.inner.vector.as_ref(),
+            &scoring,
             req,
         )?;
         self.inner.provenance_cache.lock().insert(report);
         Ok(package)
+    }
+
+    /// Current read-path ranking weights (a cheap copy of the live config).
+    pub fn scoring_config(&self) -> ScoringConfig {
+        *self.inner.scoring.read()
+    }
+
+    /// Swap the read-path ranking weights live. The next `read_context` picks
+    /// them up; in-flight calls finish under the weights they snapshotted.
+    pub fn set_scoring_config(&self, scoring: ScoringConfig) {
+        *self.inner.scoring.write() = scoring;
     }
 
     /// Look up the per-memory breakdown for an earlier context package.
@@ -370,10 +387,7 @@ impl Runtime {
         let checkpoint = store.worker_checkpoint(toffee_store::DEFAULT_WORKER_ID)?;
         let after = checkpoint
             .as_ref()
-            .and_then(|c| {
-                c.last_processed_at
-                    .zip(c.last_processed_event_id.clone())
-            });
+            .and_then(|c| c.last_processed_at.zip(c.last_processed_event_id.clone()));
         let queue_depth = store.count_events_after(after.as_ref())?;
         let events_total = store.count_events_after(None)?;
         let memories_active = store.memory_count_active()?;
@@ -524,10 +538,7 @@ impl Runtime {
     }
 
     /// Run the worker loop until `shutdown` fires.
-    pub async fn run_worker(
-        self,
-        shutdown: broadcast::Receiver<()>,
-    ) -> Result<()> {
+    pub async fn run_worker(self, shutdown: broadcast::Receiver<()>) -> Result<()> {
         worker::run(self.inner.clone(), shutdown).await
     }
 
@@ -567,10 +578,7 @@ impl Inner {
         };
         let after = checkpoint
             .as_ref()
-            .and_then(|c| {
-                c.last_processed_at
-                    .zip(c.last_processed_event_id.clone())
-            });
+            .and_then(|c| c.last_processed_at.zip(c.last_processed_event_id.clone()));
         let queue_depth = store.count_events_after(after.as_ref()).unwrap_or(0);
         let lag_seconds = checkpoint
             .as_ref()
@@ -621,9 +629,7 @@ fn collect_source_events(
 pub fn compose_text_for_embedding(memory: &toffee_core::Memory) -> String {
     let mut parts: Vec<String> = Vec::with_capacity(4);
     parts.push(memory.text.clone());
-    if let (Some(s), Some(p), Some(o)) =
-        (&memory.subject, &memory.predicate, &memory.object)
-    {
+    if let (Some(s), Some(p), Some(o)) = (&memory.subject, &memory.predicate, &memory.object) {
         parts.push(format!("{s} {p} {o}"));
     }
     parts.join(" \n ")

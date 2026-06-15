@@ -5,13 +5,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
-use tokio::sync::broadcast;
 use toffee_core::{
     scalars, ConflictId, ConflictResolution, Event, EventId, Memory, MemoryCandidate,
     MemoryConflict, MemoryId,
 };
 use toffee_store::DEFAULT_WORKER_ID;
 use toffee_vector::{Embedder, IndexedPoint, VectorIndex};
+use tokio::sync::broadcast;
 
 use crate::{
     compose_text_for_embedding, conflict_detector, entity_resolver, extractor, promoter, Result,
@@ -65,10 +65,7 @@ fn drain_once_sync(runtime: &Arc<RuntimeInner>) -> Result<usize> {
     let checkpoint = store.worker_checkpoint(DEFAULT_WORKER_ID)?;
     let after = checkpoint
         .as_ref()
-        .and_then(|c| {
-            c.last_processed_at
-                .zip(c.last_processed_event_id.clone())
-        });
+        .and_then(|c| c.last_processed_at.zip(c.last_processed_event_id.clone()));
     let events = store.events_after(after.as_ref(), BATCH_SIZE)?;
     let count = events.len();
 
@@ -192,7 +189,11 @@ fn link_entities(
     Ok(())
 }
 
-fn candidate_to_memory(candidate: &MemoryCandidate, confidence: f64, force_episode: bool) -> Memory {
+fn candidate_to_memory(
+    candidate: &MemoryCandidate,
+    confidence: f64,
+    force_episode: bool,
+) -> Memory {
     let kind = if force_episode {
         toffee_core::MemoryKind::Episode
     } else {
@@ -200,20 +201,19 @@ fn candidate_to_memory(candidate: &MemoryCandidate, confidence: f64, force_episo
     };
     let now = Utc::now();
     // Episodes are allowed to be SPO-less, so blank them out when we demote.
-    let (subject, predicate, object) = if matches!(kind, toffee_core::MemoryKind::Episode)
-        && !candidate.kind.requires_spo()
-    {
-        (None, None, None)
-    } else if force_episode {
-        // Demoted: drop SPO so we don't trip the schema CHECK by accident.
-        (None, None, None)
-    } else {
-        (
-            candidate.subject.clone(),
-            candidate.predicate.clone(),
-            candidate.object.clone(),
-        )
-    };
+    let (subject, predicate, object) =
+        if matches!(kind, toffee_core::MemoryKind::Episode) && !candidate.kind.requires_spo() {
+            (None, None, None)
+        } else if force_episode {
+            // Demoted: drop SPO so we don't trip the schema CHECK by accident.
+            (None, None, None)
+        } else {
+            (
+                candidate.subject.clone(),
+                candidate.predicate.clone(),
+                candidate.object.clone(),
+            )
+        };
     Memory {
         id: MemoryId::generate(),
         kind,
@@ -248,10 +248,9 @@ fn record_conflict(
     // Dedup: if an unresolved conflict already exists for this (subject,
     // predicate) in an intersecting scope, extend it rather than opening a
     // new one. Otherwise open a new conflict with both sides.
-    let (Some(subject), Some(predicate)) = (
-        candidate.subject.as_deref(),
-        candidate.predicate.as_deref(),
-    ) else {
+    let (Some(subject), Some(predicate)) =
+        (candidate.subject.as_deref(), candidate.predicate.as_deref())
+    else {
         // Shouldn't happen — conflict_detector only fires when SPO is
         // present — but be defensive.
         return Ok(());
@@ -277,8 +276,7 @@ fn record_conflict(
         return Ok(());
     }
 
-    let mut competing_ids: Vec<MemoryId> =
-        finding.competing.iter().map(|m| m.id.clone()).collect();
+    let mut competing_ids: Vec<MemoryId> = finding.competing.iter().map(|m| m.id.clone()).collect();
     competing_ids.push(candidate_memory.id.clone());
 
     let conflict = MemoryConflict {

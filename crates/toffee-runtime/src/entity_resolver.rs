@@ -19,8 +19,8 @@ use toffee_store::{EntityListFilter, Store};
 use crate::Result;
 
 const STOPLIST: &[&str] = &[
-    "user", "we", "i", "you", "they", "the", "a", "an", "this", "that", "it",
-    "thing", "things", "us", "them", "everyone", "anyone", "someone",
+    "user", "we", "i", "you", "they", "the", "a", "an", "this", "that", "it", "thing", "things",
+    "us", "them", "everyone", "anyone", "someone",
 ];
 
 pub fn resolve(candidate: &MemoryCandidate, store: &Store) -> Result<Vec<EntityId>> {
@@ -55,10 +55,9 @@ pub fn resolve(candidate: &MemoryCandidate, store: &Store) -> Result<Vec<EntityI
         if needles
             .iter()
             .any(|n| !n.is_empty() && contains_whole_word(&text_lower, n))
+            && seen.insert(ent.id.0.clone())
         {
-            if seen.insert(ent.id.0.clone()) {
-                ids.push(ent.id);
-            }
+            ids.push(ent.id);
         }
     }
 
@@ -201,14 +200,22 @@ mod tests {
     #[test]
     fn stoplist_terms_are_not_auto_created() {
         let store = Store::open_in_memory().unwrap();
-        let cand = cand_with_spo("user", "prefers", "concise responses", "user prefers concise responses");
+        let cand = cand_with_spo(
+            "user",
+            "prefers",
+            "concise responses",
+            "user prefers concise responses",
+        );
         let ids = resolve(&cand, &store).unwrap();
         // "user" is in stoplist; "concise responses" is fine.
-        assert!(!ids.iter().any(|id| {
-            store.get_entity(id).unwrap().unwrap().name.to_lowercase() == "user"
-        }));
+        assert!(!ids
+            .iter()
+            .any(|id| { store.get_entity(id).unwrap().unwrap().name.to_lowercase() == "user" }));
         assert!(store.find_entity_by_name("user").unwrap().is_none());
-        assert!(store.find_entity_by_name("concise responses").unwrap().is_some());
+        assert!(store
+            .find_entity_by_name("concise responses")
+            .unwrap()
+            .is_some());
     }
 
     #[test]

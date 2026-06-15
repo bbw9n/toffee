@@ -56,7 +56,11 @@ impl Daemon {
             }
             std::thread::sleep(Duration::from_millis(25));
         }
-        Daemon { child, socket, _tmp: tmp }
+        Daemon {
+            child,
+            socket,
+            _tmp: tmp,
+        }
     }
 
     fn opts(&self) -> ConnectOptions {
@@ -246,7 +250,9 @@ async fn competing_decisions_open_conflict_then_resolve_via_pick() {
     client
         .resolve_conflict(
             conflict.id.clone(),
-            ResolveConflictAction::Pick { winner: tauri.id.clone() },
+            ResolveConflictAction::Pick {
+                winner: tauri.id.clone(),
+            },
         )
         .await
         .unwrap();
@@ -338,9 +344,7 @@ async fn bug_lore_claim_surfaces_for_related_query() {
         .await
         .unwrap();
     assert!(
-        pkg.claims
-            .iter()
-            .any(|m| m.text.contains("rate-limited")),
+        pkg.claims.iter().any(|m| m.text.contains("rate-limited")),
         "bug-lore claim should surface for a related refactor query; got {:#?}",
         pkg.claims
     );
@@ -378,9 +382,7 @@ async fn two_clients_see_each_others_writes() {
         .await
         .unwrap();
     assert!(
-        pkg.decisions
-            .iter()
-            .any(|m| m.text.contains("three PRs")),
+        pkg.decisions.iter().any(|m| m.text.contains("three PRs")),
         "second client should see the first client's decision; got {:#?}",
         pkg.decisions
     );

@@ -57,7 +57,9 @@ pub async fn run(cmd: DaemonCmd, fmt: OutputFormat) -> Result<()> {
 
 async fn prefetch_models(fmt: Effective) -> Result<()> {
     let client = Client::connect().await.context("connect to daemon")?;
-    let info = client.hello("toffee-cli", env!("CARGO_PKG_VERSION")).await?;
+    let info = client
+        .hello("toffee-cli", env!("CARGO_PKG_VERSION"))
+        .await?;
     let model = info
         .supported_methods
         .iter()
@@ -110,7 +112,9 @@ async fn start(foreground: bool, fmt: Effective) -> Result<()> {
     })
     .await
     {
-        let info = client.hello("toffee-cli", env!("CARGO_PKG_VERSION")).await?;
+        let info = client
+            .hello("toffee-cli", env!("CARGO_PKG_VERSION"))
+            .await?;
         match fmt {
             Effective::Human => println!(
                 "already running. uptime={}s, events={}",
@@ -157,7 +161,9 @@ async fn start(foreground: bool, fmt: Effective) -> Result<()> {
         })
         .await
         {
-            let info = client.hello("toffee-cli", env!("CARGO_PKG_VERSION")).await?;
+            let info = client
+                .hello("toffee-cli", env!("CARGO_PKG_VERSION"))
+                .await?;
             match fmt {
                 Effective::Human => println!(
                     "started. uptime={}s, events={}",
@@ -262,7 +268,9 @@ async fn status(fmt: Effective) -> Result<()> {
             return Ok(());
         }
     };
-    let info = client.hello("toffee-cli", env!("CARGO_PKG_VERSION")).await?;
+    let info = client
+        .hello("toffee-cli", env!("CARGO_PKG_VERSION"))
+        .await?;
     match fmt {
         Effective::Human => {
             println!("daemon: running ({})", info.server_version);
@@ -304,8 +312,8 @@ async fn logs(follow: bool) -> Result<()> {
         }
         return Ok(());
     }
-    let content = std::fs::read_to_string(&log_path)
-        .with_context(|| format!("read {:?}", log_path))?;
+    let content =
+        std::fs::read_to_string(&log_path).with_context(|| format!("read {:?}", log_path))?;
     print!("{content}");
     Ok(())
 }
@@ -332,7 +340,5 @@ fn locate_toffeed() -> Result<PathBuf> {
             }
         }
     }
-    anyhow::bail!(
-        "could not locate toffeed binary; set TOFFEE_DAEMON_BIN or place toffeed on PATH"
-    )
+    anyhow::bail!("could not locate toffeed binary; set TOFFEE_DAEMON_BIN or place toffeed on PATH")
 }

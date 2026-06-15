@@ -101,13 +101,17 @@ fn row_to_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
     let payload_json: String = row.get(6)?;
     let created_at_str: String = row.get(7)?;
 
-    let scope: Scope = serde_json::from_str(&scope_json)
-        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e)))?;
-    let payload: serde_json::Value = serde_json::from_str(&payload_json)
-        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, Box::new(e)))?;
+    let scope: Scope = serde_json::from_str(&scope_json).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e))
+    })?;
+    let payload: serde_json::Value = serde_json::from_str(&payload_json).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, Box::new(e))
+    })?;
     let actor: Actor = parse_actor(&actor_str);
     let created_at: DateTime<Utc> = DateTime::parse_from_rfc3339(&created_at_str)
-        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(7, rusqlite::types::Type::Text, Box::new(e)))?
+        .map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(7, rusqlite::types::Type::Text, Box::new(e))
+        })?
         .with_timezone(&Utc);
 
     Ok(Event {

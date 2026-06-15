@@ -57,7 +57,8 @@ struct SourceCell {
 impl Runner {
     pub fn build(opts: RunnerOptions, sink: Arc<dyn Sink>) -> Result<Self, RunnerError> {
         let Config { registry, sources } = opts.config;
-        let registry_path = registry.unwrap_or_else(|| paths::state_dir().join("tap.registry.json"));
+        let registry_path =
+            registry.unwrap_or_else(|| paths::state_dir().join("tap.registry.json"));
         let registry = Arc::new(Registry::load(&registry_path)?);
 
         let mut cells = Vec::with_capacity(sources.len());
@@ -66,14 +67,18 @@ impl Runner {
             cells.push(cell);
         }
         if cells.is_empty() {
-            return Err(RunnerError::Config(
-                "no sources configured".to_string(),
-            ));
+            return Err(RunnerError::Config("no sources configured".to_string()));
         }
-        Ok(Runner { sources: cells, sink })
+        Ok(Runner {
+            sources: cells,
+            sink,
+        })
     }
 
-    pub async fn run(mut self, shutdown: tokio::sync::broadcast::Receiver<()>) -> Result<(), RunnerError> {
+    pub async fn run(
+        mut self,
+        shutdown: tokio::sync::broadcast::Receiver<()>,
+    ) -> Result<(), RunnerError> {
         let mut shutdown = shutdown;
         let mut backoff = POLL_BACKOFF_MIN;
         loop {
@@ -113,16 +118,25 @@ impl Runner {
 fn build_source(s: SourceConfig, registry: Arc<Registry>) -> Result<SourceCell, RunnerError> {
     match s {
         SourceConfig::ClaudeCode(cfg) => {
-            let path = cfg.path.clone().unwrap_or_else(ClaudeCodeSource::default_path);
+            let path = cfg
+                .path
+                .clone()
+                .unwrap_or_else(ClaudeCodeSource::default_path);
             let source = ClaudeCodeSource::new(path, registry);
             let mapper = Mapper::new(file_mapper_config(cfg));
-            Ok(SourceCell { source: Box::new(source), mapper })
+            Ok(SourceCell {
+                source: Box::new(source),
+                mapper,
+            })
         }
         SourceConfig::Codex(cfg) => {
             let path = cfg.path.clone().unwrap_or_else(CodexSource::default_path);
             let source = CodexSource::new(path, registry);
             let mapper = Mapper::new(file_mapper_config(cfg));
-            Ok(SourceCell { source: Box::new(source), mapper })
+            Ok(SourceCell {
+                source: Box::new(source),
+                mapper,
+            })
         }
         SourceConfig::Stdin(cfg) => {
             let StdinSourceConfig {
@@ -136,7 +150,10 @@ fn build_source(s: SourceConfig, registry: Arc<Registry>) -> Result<SourceCell, 
                 scope_auto: false,
                 scope_fallback,
             });
-            Ok(SourceCell { source: Box::new(source), mapper })
+            Ok(SourceCell {
+                source: Box::new(source),
+                mapper,
+            })
         }
     }
 }

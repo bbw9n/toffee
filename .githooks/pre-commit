@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Reject commits with rustfmt drift, matching the CI `cargo fmt --all --check`
+# gate so formatting never lands unformatted and gets caught later.
+#
+# Enable once per clone:  git config core.hooksPath .githooks
+set -euo pipefail
+
+# Don't block commits on machines without a Rust toolchain (e.g. docs-only edits
+# in a minimal checkout). CI still enforces the gate.
+if ! command -v cargo >/dev/null 2>&1; then
+    exit 0
+fi
+
+if ! cargo fmt --all -- --check >/dev/null 2>&1; then
+    echo "✗ rustfmt: some files are not formatted."
+    echo "  Fix with:  cargo fmt --all"
+    echo "  Then re-stage the changes and commit again."
+    echo "  (To bypass for one commit: git commit --no-verify)"
+    exit 1
+fi
