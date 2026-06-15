@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  test:
+    name: build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry, index, and target
+        uses: Swatinem/rust-cache@v2
+
+      # Build all targets first so `cargo test` doesn't recompile bins. The
+      # toffee-mcp integration test needs `toffeed` in the workspace target
+      # dir; --workspace --all-targets guarantees that.
+      - name: cargo build
+        run: cargo build --workspace --all-targets --locked
+
+      # Integration tests under bin/toffeed/tests and bin/toffee-mcp/tests
+      # spawn the daemon with `--embedder hash`, so no BGE weights are
+      # downloaded in CI.
+      - name: cargo test
+        run: cargo test --workspace --all-targets --locked
+
+  lint:
+    name: fmt + clippy (informational)
+    runs-on: ubuntu-latest
+    # The repo has pre-existing fmt + clippy drift. Keep this job
+    # non-blocking until the cleanup lands; promote to a required check
+    # afterwards by removing `continue-on-error`.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry, index, and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Separate cache key from the test job so a clippy-only run
+          # doesn't pollute the test build cache and vice versa.
+          shared-key: lint
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --locked
