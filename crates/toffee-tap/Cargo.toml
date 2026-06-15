@@ -1,0 +1,28 @@
+[package]
+name = "toffee-tap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Tap layer for ingesting AI agent session transcripts into toffee."
+
+[features]
+default = []
+test-support = []
+
+[dependencies]
+toffee-core = { workspace = true }
+toffee-client = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+toml = { workspace = true }
+glob = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+async-trait = { workspace = true }

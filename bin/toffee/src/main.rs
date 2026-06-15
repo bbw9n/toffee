@@ -42,6 +42,8 @@ enum Command {
     Worker(commands::worker::WorkerCmd),
     /// Explain how a memory came to be.
     Why(commands::why::WhyCmd),
+    /// Stream agent session transcripts (Claude Code, Codex, stdin) into toffeed.
+    Tap(commands::tap::TapCmd),
 }
 
 fn main() -> Result<()> {
@@ -70,6 +72,7 @@ fn main() -> Result<()> {
             Command::Conflict(cmd) => commands::conflict::run(cmd, cli.format).await,
             Command::Worker(cmd) => commands::worker::run(cmd, cli.format).await,
             Command::Why(cmd) => commands::why::run(cmd, cli.format).await,
+            Command::Tap(cmd) => commands::tap::run(cmd, cli.format).await,
         }
     })
 }

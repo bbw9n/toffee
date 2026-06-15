@@ -7,6 +7,7 @@ members = [
     "crates/toffee-runtime",
     "crates/toffee-rpc",
     "crates/toffee-client",
+    "crates/toffee-tap",
     "bin/toffeed",
     "bin/toffee",
 ]
@@ -56,6 +57,12 @@ toffee-runtime = { path = "crates/toffee-runtime", version = "0.1" }
 toffee-vector = { path = "crates/toffee-vector", version = "0.1" }
 toffee-rpc = { path = "crates/toffee-rpc", version = "0.1" }
 toffee-client = { path = "crates/toffee-client", version = "0.1" }
+toffee-tap = { path = "crates/toffee-tap", version = "0.1" }
+
+# Tap
+toml = "0.8"
+glob = "0.3"
+async-trait = "0.1"
 
 # Worker
 regex = "1"

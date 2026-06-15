@@ -5,5 +5,6 @@ pub mod entity;
 pub mod event;
 pub mod memory;
 pub mod provenance;
+pub mod tap;
 pub mod why;
 pub mod worker;

@@ -12,6 +12,7 @@ path = "src/main.rs"
 toffee-core = { workspace = true }
 toffee-client = { workspace = true }
 toffee-rpc = { workspace = true }
+toffee-tap = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
